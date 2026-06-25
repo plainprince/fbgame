@@ -7,7 +7,6 @@ local GRID_W = COLS * CELL
 local GRID_H = ROWS * CELL
 local SPRITE_DIR = "games/snake/sprites/"
 local SPEEDS = { [1] = 0.35, [2] = 0.25, [3] = 0.15 }
-local WORM_GROW_INTERVAL = 6
 local DIFF_LABELS = { "Easy", "Medium", "Hard" }
 
 local settings = { appleStyle = 1, colorStyle = 1 }
@@ -129,7 +128,6 @@ local function initWorms()
     dir1 = dirs.right,
     dir2 = dirs.left,
     moveTimer = 0,
-    growCount = 0,
     result = nil,
   }
 end
@@ -168,7 +166,7 @@ local function drawWorms(st)
   local cols = getColors()
   drawGradientSnake(st.worm1, cols.head1, cols.tail1)
   drawGradientSnake(st.worm2, cols.head2, cols.tail2)
-  render.text(0, 0, "P1:" .. #st.worm1 .. "  P2:" .. #st.worm2, COLOR_WHITE, render.getWidth(), 1, true)
+  render.text(0, 0, "LENGTH: " .. #st.worm1, COLOR_WHITE, render.getWidth(), 1, true)
 end
 
 local function processClassicInput(st)
@@ -259,22 +257,15 @@ local function moveWorms(st)
     return
   end
 
-  local grow1 = st.growCount % WORM_GROW_INTERVAL == 0
-  local grow2 = st.growCount % WORM_GROW_INTERVAL == 0
-
   if not w1Dead then
-    local lim = #st.worm1
-    if not grow1 then lim = lim - 1 end
-    for i = 2, lim do
+    for i = 2, #st.worm1 do
       if st.worm1[i].x == nx1 and st.worm1[i].y == ny1 then
         w1Dead = true
         break
       end
     end
     if not w1Dead then
-      local lim = #st.worm2
-      if not grow2 then lim = lim - 1 end
-      for i = 2, lim do
+      for i = 2, #st.worm2 do
         if st.worm2[i].x == nx1 and st.worm2[i].y == ny1 then
           w1Dead = true
           break
@@ -284,18 +275,14 @@ local function moveWorms(st)
   end
 
   if not w2Dead then
-    local lim = #st.worm2
-    if not grow2 then lim = lim - 1 end
-    for i = 2, lim do
+    for i = 2, #st.worm2 do
       if st.worm2[i].x == nx2 and st.worm2[i].y == ny2 then
         w2Dead = true
         break
       end
     end
     if not w2Dead then
-      local lim = #st.worm1
-      if not grow1 then lim = lim - 1 end
-      for i = 2, lim do
+      for i = 2, #st.worm1 do
         if st.worm1[i].x == nx2 and st.worm1[i].y == ny2 then
           w2Dead = true
           break
@@ -315,11 +302,8 @@ local function moveWorms(st)
     return
   end
 
-  if not grow1 then table.remove(st.worm1) end
-  if not grow2 then table.remove(st.worm2) end
   table.insert(st.worm1, 1, { x = nx1, y = ny1 })
   table.insert(st.worm2, 1, { x = nx2, y = ny2 })
-  st.growCount = st.growCount + 1
 end
 
 local function loadSettings()
@@ -453,7 +437,7 @@ local function runWorms(diff)
     blinkTimer = blinkTimer + dt
     render.clear(Color(10, 10, 10))
     render.text(0, 22, resultText, COLOR_ACCENT, render.getWidth(), 1, true)
-    render.text(0, 34, "P1: " .. #st.worm1 .. "  P2: " .. #st.worm2, COLOR_WHITE, render.getWidth(), 1, true)
+    render.text(0, 34, "LENGTH: " .. #st.worm1, COLOR_WHITE, render.getWidth(), 1, true)
     if math.floor(blinkTimer * 2) % 2 == 0 then
       render.text(0, 48, "PRESS ANY KEY", COLOR_TEXT_DIM, render.getWidth(), 1, true)
     end
