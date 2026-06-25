@@ -360,8 +360,8 @@ local function runClassic(diff)
         if input.keyPress("KEY_ESCAPE") then return
         elseif input.keyPress("KEY_ENTER") or input.keyPress("KEY_SPACE") then break end
         drawClassic(st)
-        render.fillRect(0, 44, render.getWidth(), 44, Color(10, 10, 10))
-        render.text(0, 48, "PAUSED\nENTER: CONTINUE\nESC: EXIT", COLOR_WHITE, render.getWidth(), 1, true)
+        render.fillRect(0, 18, render.getWidth(), 30, Color(10, 10, 10))
+        render.text(0, 22, "PAUSED\nENTER: CONTINUE\nESC: EXIT", COLOR_WHITE, render.getWidth(), 1, true)
         dt = yield()
       end
     end
@@ -419,8 +419,8 @@ local function runWorms(diff)
         if input.keyPress("KEY_ESCAPE") then return
         elseif input.keyPress("KEY_ENTER") or input.keyPress("KEY_SPACE") then break end
         drawWorms(st)
-        render.fillRect(0, 44, render.getWidth(), 44, Color(10, 10, 10))
-        render.text(0, 48, "PAUSED\nENTER: CONTINUE\nESC: EXIT", COLOR_WHITE, render.getWidth(), 1, true)
+        render.fillRect(0, 18, render.getWidth(), 30, Color(10, 10, 10))
+        render.text(0, 22, "PAUSED\nENTER: CONTINUE\nESC: EXIT", COLOR_WHITE, render.getWidth(), 1, true)
         dt = yield()
       end
     end
