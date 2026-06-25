@@ -1,0 +1,14 @@
+name="Retro Terminal"
+primary=00FF41
+secondary=00CC33
+background=0D0D0D
+surface=1A1A1A
+text=CCCCCC
+text_dim=666666
+accent=FFB000
+success=00FF41
+error=FF3333
+warning=FFB000
+button=222222
+button_hover=333333
+border=00FF41
