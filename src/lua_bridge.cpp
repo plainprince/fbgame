@@ -475,6 +475,7 @@ int LuaBridge::luaMenuTick(lua_State* S) {
     }
 
     int mc = g->renderer->getMonoColors();
+    bool lowMono = mc == 2 || mc == 3;
     int fillMode = 0, textMode = 0, borderMode = 0;
     if (mc == 2) {
         fillMode = g->theme ? g->theme->getInt("mono2_fill", 2) : 2;
@@ -519,7 +520,7 @@ int LuaBridge::luaMenuTick(lua_State* S) {
                     g->renderer->fillRect(margin + 1, by + 1, btnW - 2, bh - 2, Color(70, 70, 70), effFill);
                     g->renderer->text(margin + 2, by + 1, label, accent, btnW - 4, WrapMode::Word, false, textMode);
                 } else {
-                    if (mc == 3 || mc > 3)
+                    if (mc == 3 || !lowMono)
                         g->renderer->drawRect(margin, by, btnW, bh, borderCol, 0);
                     g->renderer->text(margin + 2, by + 1, label,
                         g->theme ? g->theme->get("text", COLOR_WHITE) : COLOR_WHITE,
