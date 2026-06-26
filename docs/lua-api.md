@@ -25,21 +25,29 @@ end
 
 ## render.* — Drawing
 
+All render functions accept an optional `monoMode` parameter (0=auto/luminance, 1=force white, 2=force black). This overrides how the pixel is rendered on mono displays.
+
 | Function | Description |
 |----------|-------------|
-| `render.pixel(x, y, color)` | Single pixel at (x, y). |
-| `render.fillRect(x, y, w, h, color)` | Filled rectangle. |
-| `render.drawRect(x, y, w, h, color)` | Rectangle outline (1px border). |
-| `render.fillCircle(cx, cy, r, color)` | Filled circle (integer coords). |
-| `render.drawCircle(cx, cy, r, color)` | Circle outline. |
-| `render.line(x1, y1, x2, y2, color)` | Bresenham line. |
-| `render.text(x, y, text, color [, maxW [, wrapMode]])` | Render text. `maxW` enables wrapping: `wrapMode` 0=None (clips), 1=Word, 2=Char. |
-| `render.sprite(x, y, path)` | Load and draw sprite from CWD-relative path (e.g. `"games/yourgame/spr.spr"`). |
-| `render.clear(color)` | Clear entire virtual canvas. |
+| `render.pixel(x, y, color [, monoMode])` | Single pixel at (x, y). |
+| `render.fillRect(x, y, w, h, color [, monoMode])` | Filled rectangle. |
+| `render.drawRect(x, y, w, h, color [, monoMode])` | Rectangle outline (1px border). |
+| `render.fillCircle(cx, cy, r, color [, monoMode])` | Filled circle (integer coords). |
+| `render.drawCircle(cx, cy, r, color [, monoMode])` | Circle outline. |
+| `render.line(x1, y1, x2, y2, color [, monoMode])` | Bresenham line. |
+| `render.text(x, y, text, color [, maxW [, wrapMode [, centered [, monoMode]]]])` | Render text. `maxW` enables wrapping: `wrapMode` 0=None (clips), 1=Word, 2=Char. `centered` centers text within `maxW`. |
+| `render.sprite(x, y, path [, monoMode])` | Load and draw sprite from CWD-relative path (e.g. `"games/yourgame/spr.spr"`). |
+| `render.clear(color [, monoMode])` | Clear entire virtual canvas. |
 | `render.getWidth()` → int | Virtual canvas width (128 horizontal, 64 vertical). |
 | `render.getHeight()` → int | Virtual canvas height (64 horizontal, 128 vertical). |
 | `render.setFPS(n)` | Override target framerate at runtime. |
 | `render.setOrientation("h" \| "v")` | Switch orientation (clears canvas). |
+| `render.mapColor(sourceColor, gray)` | Map a specific packed color to a gray level (0–255) for mono rendering. |
+| `render.mapColorRange(rMin, rMax, gMin, gMax, bMin, bMax, gray)` | Map a range of colors to a gray level. All 7 parameters are 0–255. |
+
+### `mapColor` / `mapColorRange` Caveat
+
+These functions only affect rendering when the engine is in mono mode (>2 colors). They register lookup-table entries that override the default luminance calculation for specific source colors or color ranges.
 
 ### Sprite Path Caveat
 
@@ -56,15 +64,20 @@ render.sprite(x, y, "games/yourgame/sprites/block.spr")
 **Key name strings:**
 
 ```
-KEY_A..KEY_Z    KEY_0..KEY_9       KEY_SPACE    KEY_ENTER
-KEY_ESCAPE      KEY_UP/LEFT/DOWN/RIGHT
-BUTTON_A..BUTTON_Y  BUTTON_START  BUTTON_SELECT
+KEY_A..KEY_Z        KEY_0..KEY_9         KEY_SPACE    KEY_ENTER
+KEY_ESCAPE          KEY_UP/LEFT/DOWN/RIGHT
+KEY_TAB             KEY_BACKSPACE        KEY_SHIFT
+KEY_CTRL            KEY_ALT              KEY_F12
+BUTTON_A..BUTTON_Y  BUTTON_START         BUTTON_SELECT
+BUTTON_L1           BUTTON_R1            BUTTON_L2     BUTTON_R2
 ```
 
 | Function | Description |
 |----------|-------------|
 | `input.keyHeld("KEY_SPACE")` → bool | True while key is held (continuous). |
 | `input.keyPress("KEY_A")` → bool | True only on the frame key transitions up→down. **One-shot — returns true once per press, then clears.** Only the first call per frame returns true. |
+
+**Note:** `KEY_SHIFT`, `KEY_CTRL`, `KEY_ALT` only work via evdev (USB gamepad/keyboard), not stdin. `KEY_F12` triggers screenshot capture in the engine.
 
 ---
 

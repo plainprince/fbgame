@@ -87,7 +87,7 @@ For a font with `font_chars = " ABCDEFGHIJKLMNOPQRSTUVWXYZ"` and `char_height = 
 
 ## Theme Format (.theme)
 
-Properties file with hex RGB/RGBA color values:
+Properties file with hex RGB/RGBA color values plus mono-mode configuration integers:
 
 ```properties
 name = "Retro Terminal"
@@ -95,11 +95,19 @@ primary = "00FF41"
 background = "0D0D0D"
 text = "CCCCCC"
 accent = "FF4488"
+mono_conversion = 0     # 0=luma, 1=Sobel edge detect (mono >2 only)
+mono2_fill = 2          # 2-color: fill mode (0=auto, 1=white, 2=black)
+mono2_text = 1          # 2-color: text mode
+mono2_border = 1        # 2-color: border mode
+mono3_fill = 2          # 3-color: fill mode
+mono3_text = 1          # 3-color: text mode
+mono3_border = 1        # 3-color: border mode
 ```
 
 **Format:**
 - Standard `key = value` properties (see config format below)
 - Color values: 6 hex chars (RGB) or 8 hex chars (RGBA)
+- Integer values: decimal integers (for mono-mode config)
 - Quotes optional: `primary = "00FF41"` ≡ `primary = 00FF41`
 - Case-insensitive hex: `FF`, `ff`, `Ff` all valid
 
@@ -120,6 +128,20 @@ accent = "FF4488"
 | `button` | `#333333` | Button background |
 | `button_hover` | `#444444` | Button hover state |
 | `border` | `#444444` | Borders |
+
+### Mono-mode Theme Properties
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `mono_conversion` | int | 0 | 0=luminance quantize, 1=Sobel edge detection (mono >2 only) |
+| `mono2_fill` | int | 2 | Mono fill rendering mode for 2-color (0=auto, 1=white, 2=black) |
+| `mono2_text` | int | 1 | Mono text rendering mode for 2-color |
+| `mono2_border` | int | 1 | Mono border rendering mode for 2-color |
+| `mono3_fill` | int | 2 | Mono fill rendering mode for 3-color |
+| `mono3_text` | int | 1 | Mono text rendering mode for 3-color |
+| `mono3_border` | int | 1 | Mono border rendering mode for 3-color |
+
+The mode values (0/1/2) correspond to: 0=auto (luminance-based), 1=force white, 2=force black.
 
 Theme files live in `themes/` and are selectable from the Settings menu.
 
@@ -144,7 +166,7 @@ Theme files live in `themes/` and are selectable from the Settings menu.
 
 ### Settings Storage
 
-Engine settings (orientation, font name, spacing, theme) are stored in `saves/app/settings.txt` using the properties format.
+Engine settings (orientation, font name, spacing, theme, volume) are stored in `saves/app/settings.txt` using the properties format.
 
 ---
 
@@ -176,6 +198,8 @@ orientation = h
 fps = 30
 ```
 
+Optional file at the engine root. Falls back to defaults if absent.
+
 ### Game Config (`games/<name>/config.properties`)
 
 ```properties
@@ -183,6 +207,7 @@ game_name = "My Game"
 game_namespace = "mygame"
 fps = 15
 orientation = v
+mono_mode = luma
 ```
 
 | Key | Required | Default | Description |
@@ -191,3 +216,18 @@ orientation = v
 | `game_namespace` | no | directory name | Subdirectory under `saves/` for persistent data |
 | `fps` | no | engine default | Target framerate for this game |
 | `orientation` | no | engine default | `h` = 128×64 horizontal, `v` = 64×128 vertical |
+| `mono_mode` | no | `luma` | Mono conversion: `luma` (luminance) or `edge` (Sobel edge detection, only affects >2 color mono) |
+
+### Settings Storage (`saves/app/settings.txt`)
+
+```properties
+orientation = h
+font_name = default
+char_gap = 1
+top_gap = 1
+bottom_gap = 0
+theme = default
+volume = 1.0
+```
+
+Auto-managed by the Settings menu. Not intended for manual editing.

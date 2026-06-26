@@ -15,6 +15,7 @@
    game_namespace = "yourgame"
    fps = 15
    orientation = v
+   mono_mode = luma
    ```
 
 3. Write `main.lua` with `setup()`, `loop()`, `shutdown()` functions (see [lua-api.md](lua-api.md)).
@@ -44,7 +45,7 @@ Design for the virtual canvas orientation:
 |          |
 |          |
 +----------+
-  64 wide
+   64 wide
 ```
 
 ## Font System
@@ -109,6 +110,22 @@ end
 ```
 
 For grid-based movement, use `keyPress` exclusively to step one cell per press.
+
+## Screenshots
+
+Press **F12** at any time during gameplay to save a screenshot. Screenshots are saved as PPM files in `screenshots/<game>_<timestamp>.ppm`.
+
+## Mono Mode
+
+The engine can run in mono mode (pass `-m` flag, or automatically on grayscale displays). Game logic can control per-element mono rendering by passing a `monoMode` parameter to draw calls:
+
+- **0** (default): auto — luminance-based quantization
+- **1** force white — always renders as white
+- **2** force black — always renders as black
+
+This is useful for UI overlays that need to remain readable regardless of the background.
+
+`render.mapColor()` and `render.mapColorRange()` allow overriding how specific colors map to gray levels for your game's color palette.
 
 ## Performance
 
