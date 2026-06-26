@@ -504,6 +504,7 @@ function setup()
     settings.colorStyle = 1
 
     render.mapColor(Color(10, 10, 10), 0)
+    render.mapColor(Color(60, 60, 60), 255)
     render.mapColorRange(0, 0, 0, 255, 0, 255, 127)
 end
 
