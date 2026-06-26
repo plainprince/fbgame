@@ -179,28 +179,54 @@ bool DefaultMenu::handleInput() {
 }
 
 void DefaultMenu::drawButton(int x, int y, int w, int h, const std::string& label, bool hover) {
+    int mc = renderer->getMonoColors();
+    bool lowMono = mc == 2 || mc == 3;
+    int fillMode = 0, textMode = 0, borderMode = 0;
+    if (mc == 2) {
+        fillMode = theme ? theme->getInt("mono2_fill", 2) : 2;
+        textMode = theme ? theme->getInt("mono2_text", 1) : 1;
+        borderMode = theme ? theme->getInt("mono2_border", 1) : 1;
+    } else if (mc == 3) {
+        fillMode = theme ? theme->getInt("mono3_fill", 2) : 2;
+        textMode = theme ? theme->getInt("mono3_text", 1) : 1;
+        borderMode = theme ? theme->getInt("mono3_border", 1) : 1;
+    }
+    if (mc == 3 && hover)
+        fillMode = 0;
     Color bg = hover ? theme->get("button_hover", {80, 80, 80}) : theme->get("button", {55, 55, 55});
     Color border = hover ? theme->get("accent", COLOR_WHITE) : theme->get("border", {120, 120, 120});
 
-    renderer->fillRect(x, y, w, h, bg);
-    renderer->drawRect(x, y, w, h, border);
+    renderer->fillRect(x, y, w, h, bg, fillMode);
 
     if (hover) {
-        renderer->fillRect(x + 1, y + 1, w - 2, h - 2, {70, 70, 70});
-        drawText(x + 2, y + 1, label, theme->get("accent", COLOR_WHITE), w - 4);
+        renderer->drawRect(x, y, w, h, border, borderMode);
+        renderer->fillRect(x + 1, y + 1, w - 2, h - 2, {70, 70, 70}, fillMode);
+        drawText(x + 2, y + 1, label, border, w - 4, textMode);
     } else {
-        drawText(x + 2, y + 1, label, theme->get("text", COLOR_WHITE), w - 4);
+        if (mc == 3 || !lowMono)
+            renderer->drawRect(x, y, w, h, border, 0);
+        drawText(x + 2, y + 1, label, theme->get("text", COLOR_WHITE), w - 4, textMode);
     }
 }
 
-void DefaultMenu::drawText(int x, int y, const std::string& text, Color c, int maxW) {
+void DefaultMenu::drawText(int x, int y, const std::string& text, Color c, int maxW, int monoMode) {
     if (!font) return;
-    renderer->text(x, y, text, c, std::max(1, maxW), WrapMode::Word);
+    renderer->text(x, y, text, c, std::max(1, maxW), WrapMode::Word, false, monoMode);
 }
 
 void DefaultMenu::draw() {
+    int mc = renderer->getMonoColors();
+    int fillMode = 0, textMode = 0;
+    if (mc == 2) {
+        fillMode = theme ? theme->getInt("mono2_fill", 2) : 2;
+        textMode = theme ? theme->getInt("mono2_text", 1) : 1;
+    } else if (mc == 3) {
+        fillMode = theme ? theme->getInt("mono3_fill", 2) : 2;
+        textMode = theme ? theme->getInt("mono3_text", 1) : 1;
+    }
+ 
     renderer->beginFrame();
-    renderer->clear(theme->get("background", {17, 17, 17}));
+    renderer->clear(theme->get("background", {17, 17, 17}), fillMode);
 
     int vw = renderer->width();
     int vh = renderer->height();
@@ -219,13 +245,13 @@ void DefaultMenu::draw() {
         if (titleY + titleLines * lineH > 0 && titleY < vh)
             renderer->text(margin, titleY, title,
                            theme->get("primary", {68, 136, 255}),
-                           maxW, WrapMode::Word, true);
+                           maxW, WrapMode::Word, true, textMode);
 
         int subY = titleY + titleLines * lineH + font->topGap();
         if (subY + subLines * lineH > 0 && subY < vh)
             renderer->text(margin, subY, subtitle,
                            theme->get("text_dim", {136, 136, 136}),
-                           maxW, WrapMode::Word, true);
+                           maxW, WrapMode::Word, true, textMode);
 
         int btnW = maxW;
         int btnX = (vw - btnW) / 2;

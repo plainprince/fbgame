@@ -9,7 +9,6 @@ local FIELD_W = BOARD_W * CELL
 local FIELD_H = VISIBLE_H * CELL
 local GRAVITY_BASE = 1.0
 local SPRITE_DIR = "games/tetris/sprites/"
--- audio.* paths are relative to game directory, no prefix needed
 
 local function spritePath(name)
     return SPRITE_DIR .. name .. ".spr"
@@ -469,6 +468,22 @@ function setup()
     score = 0
     level = 1
     lines = 0
+
+    for i, p in ipairs(PIECES) do
+        local c = p.color
+        local margin = 30
+        local gray = math.floor(240 - (i - 1) * 24)
+        render.mapColorRange(
+            math.max(0, c[1] - margin), math.min(255, c[1] + margin),
+            math.max(0, c[2] - margin), math.min(255, c[2] + margin),
+            math.max(0, c[3] - margin), math.min(255, c[3] + margin),
+            gray
+        )
+        local ghostR = math.floor(c[1] * 0.3)
+        local ghostG = math.floor(c[2] * 0.3)
+        local ghostB = math.floor(c[3] * 0.3)
+        render.mapColor(Color(ghostR, ghostG, ghostB), 127)
+    end
 end
 
 function loop(dt)

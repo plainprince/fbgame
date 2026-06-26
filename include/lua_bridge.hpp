@@ -49,6 +49,8 @@ private:
     static int luaText(lua_State* L);
     static int luaSprite(lua_State* L);
     static int luaClear(lua_State* L);
+    static int luaMapColor(lua_State* L);
+    static int luaMapColorRange(lua_State* L);
     static int luaGetWidth(lua_State* L);
     static int luaGetHeight(lua_State* L);
     static int luaSetFPS(lua_State* L);

@@ -20,7 +20,8 @@ int LuaBridge::luaRenderPixel(lua_State* S) {
     int x = lua_tointeger(S, 1);
     int y = lua_tointeger(S, 2);
     Color c = Color::unpack((uint32_t)lua_tointeger(S, 3));
-    g->renderer->pixel(x, y, c);
+    int monoMode = lua_isnone(S, 4) ? 0 : lua_tointeger(S, 4);
+    g->renderer->pixel(x, y, c, monoMode);
     return 0;
 }
 
@@ -29,7 +30,8 @@ int LuaBridge::luaFillRect(lua_State* S) {
     int x = lua_tointeger(S, 1), y = lua_tointeger(S, 2);
     int w = lua_tointeger(S, 3), h = lua_tointeger(S, 4);
     Color c = Color::unpack((uint32_t)lua_tointeger(S, 5));
-    g->renderer->fillRect(x, y, w, h, c);
+    int monoMode = lua_isnone(S, 6) ? 0 : lua_tointeger(S, 6);
+    g->renderer->fillRect(x, y, w, h, c, monoMode);
     return 0;
 }
 
@@ -38,7 +40,8 @@ int LuaBridge::luaDrawRect(lua_State* S) {
     int x = lua_tointeger(S, 1), y = lua_tointeger(S, 2);
     int w = lua_tointeger(S, 3), h = lua_tointeger(S, 4);
     Color c = Color::unpack((uint32_t)lua_tointeger(S, 5));
-    g->renderer->drawRect(x, y, w, h, c);
+    int monoMode = lua_isnone(S, 6) ? 0 : lua_tointeger(S, 6);
+    g->renderer->drawRect(x, y, w, h, c, monoMode);
     return 0;
 }
 
@@ -46,7 +49,8 @@ int LuaBridge::luaFillCircle(lua_State* S) {
     auto* g = getGS(S);
     int cx = lua_tointeger(S, 1), cy = lua_tointeger(S, 2), r = lua_tointeger(S, 3);
     Color c = Color::unpack((uint32_t)lua_tointeger(S, 4));
-    g->renderer->fillCircle(cx, cy, r, c);
+    int monoMode = lua_isnone(S, 5) ? 0 : lua_tointeger(S, 5);
+    g->renderer->fillCircle(cx, cy, r, c, monoMode);
     return 0;
 }
 
@@ -54,7 +58,8 @@ int LuaBridge::luaDrawCircle(lua_State* S) {
     auto* g = getGS(S);
     int cx = lua_tointeger(S, 1), cy = lua_tointeger(S, 2), r = lua_tointeger(S, 3);
     Color c = Color::unpack((uint32_t)lua_tointeger(S, 4));
-    g->renderer->drawCircle(cx, cy, r, c);
+    int monoMode = lua_isnone(S, 5) ? 0 : lua_tointeger(S, 5);
+    g->renderer->drawCircle(cx, cy, r, c, monoMode);
     return 0;
 }
 
@@ -63,7 +68,8 @@ int LuaBridge::luaLine(lua_State* S) {
     int x1 = lua_tointeger(S, 1), y1 = lua_tointeger(S, 2);
     int x2 = lua_tointeger(S, 3), y2 = lua_tointeger(S, 4);
     Color c = Color::unpack((uint32_t)lua_tointeger(S, 5));
-    g->renderer->line(x1, y1, x2, y2, c);
+    int monoMode = lua_isnone(S, 6) ? 0 : lua_tointeger(S, 6);
+    g->renderer->line(x1, y1, x2, y2, c, monoMode);
     return 0;
 }
 
@@ -80,24 +86,48 @@ int LuaBridge::luaText(lua_State* S) {
         else if (m == 2) mode = WrapMode::Char;
     }
     bool centered = lua_isnone(S, 7) ? false : lua_toboolean(S, 7);
-    g->renderer->text(x, y, t ? t : "", c, maxW, mode, centered);
+    int monoMode = lua_isnone(S, 8) ? 0 : lua_tointeger(S, 8);
+    g->renderer->text(x, y, t ? t : "", c, maxW, mode, centered, monoMode);
     return 0;
 }
 
 int LuaBridge::luaSprite(lua_State* S) {
     auto* g = getGS(S);
     int x = lua_tointeger(S, 1), y = lua_tointeger(S, 2);
+    int monoMode = lua_isnone(S, 4) ? 0 : lua_tointeger(S, 4);
     SpriteLoader loader;
     Sprite spr;
     if (loader.load(lua_tostring(S, 3), spr))
-        g->renderer->sprite(x, y, spr);
+        g->renderer->sprite(x, y, spr, monoMode);
     return 0;
 }
 
 int LuaBridge::luaClear(lua_State* S) {
     auto* g = getGS(S);
     Color c = Color::unpack((uint32_t)lua_tointeger(S, 1));
-    g->renderer->clear(c);
+    int monoMode = lua_isnone(S, 2) ? 0 : lua_tointeger(S, 2);
+    g->renderer->clear(c, monoMode);
+    return 0;
+}
+
+int LuaBridge::luaMapColor(lua_State* S) {
+    auto* g = getGS(S);
+    uint32_t src = (uint32_t)lua_tointeger(S, 1);
+    int gray = lua_tointeger(S, 2);
+    if (gray < 0) gray = 0;
+    if (gray > 255) gray = 255;
+    g->renderer->mapColor(src, (uint8_t)gray);
+    return 0;
+}
+
+int LuaBridge::luaMapColorRange(lua_State* S) {
+    auto* g = getGS(S);
+    int rMin = lua_tointeger(S, 1), rMax = lua_tointeger(S, 2);
+    int gMin = lua_tointeger(S, 3), gMax = lua_tointeger(S, 4);
+    int bMin = lua_tointeger(S, 5), bMax = lua_tointeger(S, 6);
+    int gray = lua_tointeger(S, 7);
+    auto clamp = [](int v) -> uint8_t { return (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v); };
+    g->renderer->mapColorRange(clamp(rMin), clamp(rMax), clamp(gMin), clamp(gMax), clamp(bMin), clamp(bMax), clamp(gray));
     return 0;
 }
 
@@ -444,14 +474,26 @@ int LuaBridge::luaMenuTick(lua_State* S) {
         if (scrollOffset > maxScroll) scrollOffset = maxScroll;
     }
 
+    int mc = g->renderer->getMonoColors();
+    int fillMode = 0, textMode = 0, borderMode = 0;
+    if (mc == 2) {
+        fillMode = g->theme ? g->theme->getInt("mono2_fill", 2) : 2;
+        textMode = g->theme ? g->theme->getInt("mono2_text", 1) : 1;
+        borderMode = g->theme ? g->theme->getInt("mono2_border", 1) : 1;
+    } else if (mc == 3) {
+        fillMode = g->theme ? g->theme->getInt("mono3_fill", 2) : 2;
+        textMode = g->theme ? g->theme->getInt("mono3_text", 1) : 1;
+        borderMode = g->theme ? g->theme->getInt("mono3_border", 1) : 1;
+    }
+
     Color bgCol = g->theme ? g->theme->get("background", {17, 17, 17}) : Color(17, 17, 17);
-    g->renderer->clear(bgCol);
+    g->renderer->clear(bgCol, fillMode);
 
     if (title) {
         int titleY = margin - scrollOffset;
         if (titleY + lineH > 0 && titleY < vh) {
             Color c = g->theme ? g->theme->get("primary", {68, 136, 255}) : Color(68, 136, 255);
-            g->renderer->text(margin, titleY, title, c, btnW, WrapMode::Word, false);
+            g->renderer->text(margin, titleY, title, c, btnW, WrapMode::Word, false, textMode);
         }
     }
 
@@ -466,22 +508,22 @@ int LuaBridge::luaMenuTick(lua_State* S) {
                 Color bg = hover
                     ? (g->theme ? g->theme->get("button_hover", {80, 80, 80}) : Color(80, 80, 80))
                     : (g->theme ? g->theme->get("button", {55, 55, 55}) : Color(55, 55, 55));
-                Color border = hover
-                    ? (g->theme ? g->theme->get("accent", COLOR_WHITE) : COLOR_WHITE)
-                    : (g->theme ? g->theme->get("border", {120, 120, 120}) : Color(120, 120, 120));
+                Color accent = g->theme ? g->theme->get("accent", COLOR_WHITE) : COLOR_WHITE;
+                Color borderCol = g->theme ? g->theme->get("border", Color(120, 120, 120)) : Color(120, 120, 120);
 
-                g->renderer->fillRect(margin, by, btnW, bh, bg);
-                g->renderer->drawRect(margin, by, btnW, bh, border);
+                int effFill = (mc == 3 && hover) ? 0 : fillMode;
+                g->renderer->fillRect(margin, by, btnW, bh, bg, effFill);
 
                 if (hover) {
-                    g->renderer->fillRect(margin + 1, by + 1, btnW - 2, bh - 2, Color(70, 70, 70));
-                    g->renderer->text(margin + 2, by + 1, label,
-                        g->theme ? g->theme->get("accent", COLOR_WHITE) : COLOR_WHITE,
-                        btnW - 4, WrapMode::Word);
+                    g->renderer->drawRect(margin, by, btnW, bh, accent, borderMode);
+                    g->renderer->fillRect(margin + 1, by + 1, btnW - 2, bh - 2, Color(70, 70, 70), effFill);
+                    g->renderer->text(margin + 2, by + 1, label, accent, btnW - 4, WrapMode::Word, false, textMode);
                 } else {
+                    if (mc == 3 || mc > 3)
+                        g->renderer->drawRect(margin, by, btnW, bh, borderCol, 0);
                     g->renderer->text(margin + 2, by + 1, label,
                         g->theme ? g->theme->get("text", COLOR_WHITE) : COLOR_WHITE,
-                        btnW - 4, WrapMode::Word);
+                        btnW - 4, WrapMode::Word, false, textMode);
                 }
             }
             by += bh + spacing;
@@ -557,6 +599,8 @@ void LuaBridge::registerFuncs(lua_State* S) {
         {"text", luaText},
         {"sprite", luaSprite},
         {"clear", luaClear},
+        {"mapColor", luaMapColor},
+        {"mapColorRange", luaMapColorRange},
         {"getWidth", luaGetWidth},
         {"getHeight", luaGetHeight},
         {"setFPS", luaSetFPS},

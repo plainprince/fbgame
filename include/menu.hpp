@@ -51,7 +51,7 @@ private:
     void draw();
     bool handleInput();
     void drawButton(int x, int y, int w, int h, const std::string& label, bool hover);
-    void drawText(int x, int y, const std::string& text, Color c, int maxW = 0);
+    void drawText(int x, int y, const std::string& text, Color c, int maxW = 0, int monoMode = 0);
     int itemHeight() const;
     int wrappedLines(const std::string& text, int maxW) const;
     int contentHeight() const;

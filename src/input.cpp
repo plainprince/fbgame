@@ -279,6 +279,7 @@ Key InputManager::evdevToKey(int code) {
         case 103: return Key::Up;
         case 105: return Key::Left;
         case 106: return Key::Right;
+        case 88: return Key::F12;
         case 108: return Key::Down;
         default: return Key::Unknown;
     }

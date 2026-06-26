@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <sched.h>
 #include <unistd.h>
+#include <ctime>
 #include <render.hpp>
 #include <input.hpp>
 #include <audio.hpp>
@@ -142,6 +143,8 @@ static void runLuaGame(const GameEntry& game, Font& activeFont) {
         gRenderer->resize(64, 128, Orientation::Vertical);
     else if (gameOrient == "h")
         gRenderer->resize(128, 64, Orientation::Horizontal);
+    std::string monoModeStr = cfg.getString("mono_mode", "luma");
+    gRenderer->setMonoConversion(monoModeStr == "edge" ? 1 : 0);
 
     LuaGameState gs;
     gs.renderer = gRenderer;
@@ -178,6 +181,13 @@ static void runLuaGame(const GameEntry& game, Font& activeFont) {
         if (gInput->keyHeld(Key::Ctrl) && gInput->keyPress(Key::Escape))
             gs.running = false;
 
+        if (gInput->keyPress(Key::F12)) {
+            std::string ssPath = "screenshots/" + game.name + "_" + std::to_string(std::time(nullptr)) + ".ppm";
+            std::filesystem::create_directories("screenshots");
+            gRenderer->saveScreenshot(ssPath);
+            std::cerr << "Screenshot saved: " << ssPath << "\n";
+        }
+
         gRenderer->beginFrame();
         if (!bridge.callLoop(dt)) {
             gRenderer->endFrame();
@@ -194,6 +204,7 @@ static void runLuaGame(const GameEntry& game, Font& activeFont) {
     bridge.callShutdown();
     bridge.close();
     gSave->flush();
+    if (gAudio) gAudio->stopAll();
 
     gRenderer->beginFrame();
     gRenderer->clear({});
@@ -210,9 +221,16 @@ int main(int argc, char* argv[]) {
     std::cout << "==================================\n";
 
     int fbNum = 0;
+    int monoColors = 0;
     for (int i = 1; i < argc; i++) {
         if (argv[i][0] == '-' && argv[i][1] >= '0' && argv[i][1] <= '9') {
             fbNum = std::atoi(argv[i] + 1);
+        } else if (argv[i][0] == '-' && argv[i][1] == 'm') {
+            if (argv[i][2] >= '2' && argv[i][2] <= '9') {
+                monoColors = std::atoi(argv[i] + 2);
+            } else {
+                monoColors = 2;
+            }
         }
     }
     std::cout << "  fb=/dev/fb" << fbNum << "\n";
@@ -240,6 +258,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     renderer.setFPS(fps);
+    if (monoColors) renderer.setMonoColors(monoColors);
 
     InputManager input;
     gInput = &input;
@@ -299,6 +318,7 @@ int main(int argc, char* argv[]) {
         }
     }
     renderer.setTheme(&theme);
+    renderer.setMonoConversion(theme.getInt("mono_conversion", 0));
 
     DefaultMenu menu(&renderer, &input, &menuFont, &theme, &save);
     menu.setTitle("FBGAME");
@@ -355,6 +375,7 @@ int main(int argc, char* argv[]) {
                         if (t2.load(p)) {
                             theme = t2;
                             renderer.setTheme(&theme);
+                            renderer.setMonoConversion(theme.getInt("mono_conversion", 0));
                             saveSetting("theme", tname);
                         }
                     });

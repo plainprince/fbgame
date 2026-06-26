@@ -155,7 +155,7 @@ local function drawClassic(st)
   drawGradientSnake(st.snake, cols.head, cols.tail)
   if st.apple then
     local ax, ay = cellPos(st.apple.x, st.apple.y)
-    render.sprite(ax, ay, applePath())
+    render.sprite(ax, ay, applePath(), 1)
   end
   render.text(0, 0, "SCORE: " .. st.score .. "  HI: " .. st.highScore, COLOR_WHITE, render.getWidth(), 1, true)
 end
@@ -488,8 +488,23 @@ local function runSettings()
 end
 
 function setup()
-  math.randomseed(os.time())
-  loadSettings()
+    math.randomseed(os.time())
+    loadSettings()
+
+    for style = 1, 2 do
+        settings.colorStyle = style
+        local cols = getColors()
+        render.mapColor(Color(cols.head.r, cols.head.g, cols.head.b), 255)
+        render.mapColor(Color(cols.head1.r, cols.head1.g, cols.head1.b), 255)
+        render.mapColor(Color(cols.head2.r, cols.head2.g, cols.head2.b), 255)
+        render.mapColor(Color(cols.tail.r, cols.tail.g, cols.tail.b), 127)
+        render.mapColor(Color(cols.tail1.r, cols.tail1.g, cols.tail1.b), 127)
+        render.mapColor(Color(cols.tail2.r, cols.tail2.g, cols.tail2.b), 127)
+    end
+    settings.colorStyle = 1
+
+    render.mapColor(Color(10, 10, 10), 0)
+    render.mapColorRange(0, 0, 0, 255, 0, 255, 127)
 end
 
 function loop(dt)

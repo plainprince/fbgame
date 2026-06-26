@@ -6,7 +6,7 @@ end
 
 function loop(dt)
     while true do
-        menu.create("FBGAME DEMO", {"Audio Test", "Input Test", "Save State Test", "Quit"})
+        menu.create("FBGAME DEMO", {"Mono Demo", "Audio Test", "Input Test", "Save State Test", "Quit"})
         local choice = 0
         while choice == 0 do
             choice = menu.tick()
@@ -14,10 +14,11 @@ function loop(dt)
         end
         if choice < 0 then quit(); return end
 
-        if choice == 1 then runAudioTest() end
-        if choice == 2 then runInputTest() end
-        if choice == 3 then runSaveTest() end
-        if choice == 4 then quit(); return end
+        if choice == 1 then runMonoDemo() end
+        if choice == 2 then runAudioTest() end
+        if choice == 3 then runInputTest() end
+        if choice == 4 then runSaveTest() end
+        if choice == 5 then quit(); return end
     end
 end
 
@@ -91,6 +92,49 @@ function runSaveTest()
         render.text(4, 28, "ESC toggles and writes.", COLOR_TEXT_DIM)
         render.text(4, 38, "Re-enter to see change.", COLOR_TEXT_DIM)
         render.text(2, h - 10, "ESC toggle & back", COLOR_GREY)
+        dt = yield()
+    end
+end
+
+function runMonoDemo()
+    frame_count = 0
+    while true do
+        if input.keyPress("KEY_ESCAPE") then return end
+
+        frame_count = frame_count + 1
+        local w = render.getWidth()
+        local h = render.getHeight()
+
+        render.clear(COLOR_BLACK)
+
+        render.text(2, 2, "MONO DEMO", COLOR_PRIMARY)
+        render.line(2, 11, w - 2, 11, COLOR_GREY)
+        render.text(2, 14, "mono_mode from config", COLOR_TEXT_DIM)
+
+        local cx = 20
+        local cy = 34
+        for i = 1, 5 do
+            local shade = math.floor(i * 51)
+            render.fillRect(cx + (i - 1) * 22, cy, 20, 12, Color(shade, shade, shade))
+        end
+
+        render.fillRect(cx, cy + 16, w - 4, 2, COLOR_WHITE)
+        render.fillRect(cx, cy + 18, 20, 6, Color(255, 0, 0))
+        render.fillRect(cx + 22, cy + 18, 20, 6, Color(0, 255, 0))
+        render.fillRect(cx + 44, cy + 18, 20, 6, Color(0, 0, 255))
+        render.fillRect(cx + 66, cy + 18, 20, 6, Color(255, 255, 0))
+        render.fillRect(cx + 88, cy + 18, 20, 6, Color(0, 255, 255))
+
+        render.fillCircle(22, cy + 38, 6, COLOR_RED)
+        render.fillCircle(36, cy + 38, 6, COLOR_GREEN)
+        render.fillCircle(50, cy + 38, 6, COLOR_BLUE)
+        render.drawCircle(64, cy + 38, 6, COLOR_WHITE)
+
+        render.line(80, cy + 32, 120, cy + 44, COLOR_WHITE)
+        render.line(80, cy + 44, 120, cy + 32, COLOR_YELLOW)
+
+        render.text(2, h - 10, "ESC back", COLOR_GREY)
+
         dt = yield()
     end
 end

@@ -12,3 +12,12 @@ warning=FFB000
 button=222222
 button_hover=333333
 border=00FF41
+
+mono2_fill=2
+mono2_text=1
+mono2_border=1
+mono3_fill=2
+mono3_text=1
+mono3_border=1
+mono_conversion=0
+

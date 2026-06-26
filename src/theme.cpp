@@ -1,5 +1,4 @@
 #include <theme.hpp>
-#include <config.hpp>
 #include <sstream>
 
 static Color parseColor(const std::string& s) {
@@ -23,13 +22,16 @@ static Color parseColor(const std::string& s) {
 }
 
 bool Theme::load(const std::string& path) {
-    Properties props;
-    if (!props.load(path)) return false;
-    themeName = props.getString("name", "default");
-    for (auto& k : props.keys())
-        if (k != "name")
-            colors[k] = parseColor(props.getString(k));
+    if (!raw.load(path)) return false;
+    themeName = raw.getString("name", "default");
+    for (auto& k : raw.keys())
+        if (k != "name" && raw.getString(k).size() >= 6)
+            colors[k] = parseColor(raw.getString(k));
     return true;
+}
+
+int Theme::getInt(const std::string& name, int fallback) const {
+    return raw.getInt(name, fallback);
 }
 
 Color Theme::get(const std::string& name, const Color& fallback) const {
