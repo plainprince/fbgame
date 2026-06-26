@@ -252,22 +252,24 @@ end
 
 local function checkScoring()
   if ballX + BALL_SIZE < 0 then
-    audio.playSfx("score.wav")
     score2 = score2 + 1
     if score2 >= WIN_SCORE then
       if mode == 1 then gameWinner = "YOU LOSE!" else gameWinner = "PLAYER 2 WINS!" end
       gameOver = true
+      audio.playSfx("gameover.wav")
     else
+      audio.playSfx("score.wav")
       resetBall(1)
     end
     return true
   elseif ballX > 128 then
-    audio.playSfx("score.wav")
     score1 = score1 + 1
     if score1 >= WIN_SCORE then
       if mode == 1 then gameWinner = "YOU WIN!" else gameWinner = "PLAYER 1 WINS!" end
       gameOver = true
+      audio.playSfx("gameover.wav")
     else
+      audio.playSfx("score.wav")
       resetBall(-1)
     end
     return true
@@ -331,7 +333,6 @@ local function runSingleplayer()
     drawGame()
     dt = yield()
   end
-  audio.playSfx("gameover.wav")
   blinkTimer = 0
   dismissTimer = 0.5
   dt = 0
@@ -368,7 +369,6 @@ local function runMultiplayer()
     drawGame()
     dt = yield()
   end
-  audio.playSfx("gameover.wav")
   blinkTimer = 0
   dismissTimer = 0.5
   dt = 0

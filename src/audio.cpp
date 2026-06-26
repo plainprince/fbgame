@@ -117,23 +117,34 @@ AudioManager::AudioClip AudioManager::loadWav(const std::string& path) {
 }
 
 void AudioManager::mixerFunc() {
-    snd_pcm_t* handle;
-    int err = snd_pcm_open(&handle, "default", SND_PCM_STREAM_PLAYBACK, 0);
-    if (err < 0) {
-        std::cerr << "ALSA open error: " << snd_strerror(err) << "\n";
-        return;
-    }
-
-    err = snd_pcm_set_params(handle, SND_PCM_FORMAT_S16_LE,
-                             SND_PCM_ACCESS_RW_INTERLEAVED,
-                             1, 44100, 1, 50000);
-    if (err < 0) {
-        std::cerr << "ALSA set params error: " << snd_strerror(err) << "\n";
-        snd_pcm_close(handle);
-        return;
-    }
-
+    snd_pcm_t* handle = nullptr;
+    int currentRate = 0;
     short mixBuf[CHUNK_FRAMES];
+
+    auto openAlsa = [&](int rate) -> bool {
+        if (handle) {
+            snd_pcm_drain(handle);
+            snd_pcm_close(handle);
+            handle = nullptr;
+            currentRate = 0;
+        }
+        int err = snd_pcm_open(&handle, "default", SND_PCM_STREAM_PLAYBACK, 0);
+        if (err < 0) {
+            std::cerr << "ALSA open error: " << snd_strerror(err) << "\n";
+            return false;
+        }
+        err = snd_pcm_set_params(handle, SND_PCM_FORMAT_S16_LE,
+                                 SND_PCM_ACCESS_RW_INTERLEAVED,
+                                 1, rate, 1, 50000);
+        if (err < 0) {
+            std::cerr << "ALSA set params error: " << snd_strerror(err) << "\n";
+            snd_pcm_close(handle);
+            handle = nullptr;
+            return false;
+        }
+        currentRate = rate;
+        return true;
+    };
 
     while (running) {
         std::unique_lock lock(mtx);
@@ -143,6 +154,8 @@ void AudioManager::mixerFunc() {
             sfxQueue.pop();
             lock.unlock();
             auto clip = std::make_shared<AudioClip>(loadWav(path));
+            if (!clip->samples.empty() && (handle == nullptr || clip->rate != currentRate))
+                openAlsa(clip->rate);
             lock.lock();
             if (!clip->samples.empty()) {
                 auto v = std::make_unique<Voice>();
@@ -158,6 +171,8 @@ void AudioManager::mixerFunc() {
                 if (v->loop) v->stop = true;
             lock.unlock();
             auto clip = std::make_shared<AudioClip>(loadWav(path));
+            if (!clip->samples.empty() && (handle == nullptr || clip->rate != currentRate))
+                openAlsa(clip->rate);
             lock.lock();
             if (!clip->samples.empty()) {
                 auto v = std::make_unique<Voice>();
@@ -169,10 +184,10 @@ void AudioManager::mixerFunc() {
 
         if (paused) {
             lock.unlock();
-            snd_pcm_pause(handle, 1);
+            if (handle) snd_pcm_pause(handle, 1);
             while (paused && running)
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            snd_pcm_pause(handle, 0);
+            if (handle) snd_pcm_pause(handle, 0);
             lock.lock();
         }
 
@@ -203,7 +218,7 @@ void AudioManager::mixerFunc() {
 
         lock.unlock();
 
-        if (anyActive && !paused) {
+        if (anyActive && !paused && handle) {
             snd_pcm_sframes_t written = snd_pcm_writei(handle, mixBuf, CHUNK_FRAMES);
             if (written == -EPIPE) {
                 snd_pcm_prepare(handle);
@@ -214,9 +229,12 @@ void AudioManager::mixerFunc() {
         }
     }
 
-    snd_pcm_drain(handle);
-    snd_pcm_close(handle);
+    if (handle) {
+        snd_pcm_drain(handle);
+        snd_pcm_close(handle);
+    }
 }
+
 
 void AudioManager::playSfx(const std::string& path) {
     if (!running) return;
