@@ -3,14 +3,18 @@ local PADDLE_H = 12
 local PADDLE_MARGIN = 4
 local PADDLE_SPEED = 55
 local BALL_SIZE = 3
-local WIN_SCORE = 5
 local MAX_ANGLE_RAD = 55 * math.pi / 180
 
-local BALL_SPEEDS = { [1] = 30, [2] = 48, [3] = 70 }
+local SCORING_FIRST = 1
+local SCORING_COUNTDOWN = 2
+local SCORING_FOREVER = 3
+
+local BALL_SPEEDS = { [1] = 30, [2] = 48, [3] = 70, [4] = 100 }
 local AI_CONFIGS = {
   [1] = { speed = 15 },
   [2] = { speed = 35 },
-  [3] = { speed = 55, predict = true },
+  [3] = { speed = 48, predict = true },
+  [4] = { speed = PADDLE_SPEED, predict = true, preReflect = true },
 }
 
 local ballX, ballY, ballVX, ballVY
@@ -22,6 +26,12 @@ local blinkTimer, dismissTimer
 local speedMult, rallyCount
 local aiConfig
 local diff1, diff2
+
+local scoringMode = SCORING_FIRST
+local winScore = 5
+local countdownDuration = 180
+local countdownRemaining = 0
+local ballHitCount = 0
 
 local trailStore = {}
 local trailDrawPositions = {}
@@ -41,6 +51,16 @@ function setup()
   render.mapColor(Color(20, 20, 20), 0)
 end
 
+local function formatTime(seconds)
+  return math.floor(seconds / 60) .. ":" .. string.format("%02d", seconds % 60)
+end
+
+local function scoringLabel()
+  if scoringMode == SCORING_FIRST then return "First to " .. winScore
+  elseif scoringMode == SCORING_COUNTDOWN then return "Countdown " .. formatTime(countdownDuration)
+  else return "Forever" end
+end
+
 local function showMenu(title, items)
   menu.create(title, items)
   local choice = 0
@@ -54,11 +74,14 @@ end
 local function resetBall(dir)
   ballX = 64 - math.floor(BALL_SIZE / 2)
   ballY = 32 - math.floor(BALL_SIZE / 2)
+  paddle1Y = 26
+  paddle2Y = 26
   if not dir then dir = math.random() < 0.5 and 1 or -1 end
   local angleDeg = (math.random() * 60 - 30)
   local angleRad = angleDeg * math.pi / 180
   speedMult = 1.0
   rallyCount = 0
+  ballHitCount = 0
   local spd = BALL_SPEEDS[diff] * speedMult
   ballVX = dir * spd * math.cos(angleRad)
   ballVY = spd * math.sin(angleRad)
@@ -76,6 +99,10 @@ local function resetGame()
   dismissTimer = 0.5
   trailStore = {}
   trailDrawPositions = {}
+  ballHitCount = 0
+  if scoringMode == SCORING_COUNTDOWN then
+    countdownRemaining = countdownDuration
+  end
   resetBall()
 end
 
@@ -103,12 +130,21 @@ local function drawScores()
   render.text(78, 0, tostring(score2), COLOR_WHITE, 20, 1, true)
 end
 
+local function drawHUD()
+  if scoringMode == SCORING_COUNTDOWN then
+    local rem = math.max(0, math.ceil(countdownRemaining))
+    render.text(0, 1, formatTime(rem), COLOR_ACCENT, 128, 1, true)
+  end
+  render.text(0, 56, tostring(ballHitCount), COLOR_TEXT_DIM, 128, 1, true)
+end
+
 local function drawGame()
   render.clear(Color(10, 10, 10))
   drawCenterLine()
   drawPaddles()
   drawBallFn()
   drawScores()
+  drawHUD()
 end
 
 local function drawGameOverScreen()
@@ -173,7 +209,62 @@ local function reflect(y, min, max)
   return max - (wrapped - range)
 end
 
-local function handleAI(paddleId, config, dt)
+local function simulateBounce(ballCX, ballCY, ballVX, ballVY, hitterId, receiverId, hitterSpeed, receiverSpeed, depth, aiId)
+  local half = BALL_SIZE / 2
+  local halfPad = PADDLE_H / 2
+  local recvEdge = receiverId == 1 and (PADDLE_MARGIN + PADDLE_W) or (128 - PADDLE_MARGIN - PADDLE_W)
+  local dx = math.abs(recvEdge - ballCX)
+  if dx <= 0 or math.abs(ballVX) <= 1 then return 0 end
+  local t = dx / math.abs(ballVX)
+  local arrivalCY = reflect(ballCY + ballVY * t, half, 64 - half)
+
+  if depth <= 0 then
+    local recvY = receiverId == 1 and paddle1Y or paddle2Y
+    local recvCenter = recvY + halfPad
+    local reach = receiverSpeed * t
+    local dist = math.abs(arrivalCY - recvCenter)
+    local canReach = dist <= reach + halfPad
+    if receiverId == aiId then
+      return canReach and 1 or 0
+    else
+      return (not canReach) and 1 or 0
+    end
+  end
+
+  local recvY = receiverId == 1 and paddle1Y or paddle2Y
+  local recvReach = receiverSpeed * t
+  local minCenter = math.max(halfPad, arrivalCY - halfPad - half + 1)
+  local maxCenter = math.min(64 - halfPad, arrivalCY + halfPad + half - 1)
+  local totalCount = 0
+  local scoreSum = 0
+
+  local yPos = math.ceil(minCenter)
+  while yPos <= maxCenter do
+    local distToPos = math.abs(yPos - (recvY + halfPad))
+    if distToPos <= recvReach + halfPad then
+      totalCount = totalCount + 1
+      local relY = (arrivalCY - yPos) / halfPad
+      if relY < -1 then relY = -1 end
+      if relY > 1 then relY = 1 end
+      local angle = relY * MAX_ANGLE_RAD
+      local spd = BALL_SPEEDS[diff] * speedMult
+      local newVX = (recvEdge < 64) and spd * math.cos(angle) or -spd * math.cos(angle)
+      local newVY = spd * math.sin(angle)
+      local hitEdge = hitterId == 1 and (PADDLE_MARGIN + PADDLE_W) or (128 - PADDLE_MARGIN - PADDLE_W)
+      local returnDx = math.abs(hitEdge - recvEdge)
+      local returnT = returnDx / math.abs(newVX)
+      local ballYatHitter = reflect(arrivalCY + newVY * returnT, half, 64 - half)
+      local subScore = simulateBounce(recvEdge, ballYatHitter, newVX, newVY, receiverId, hitterId, receiverSpeed, hitterSpeed, depth - 1, aiId)
+      scoreSum = scoreSum + subScore
+    end
+    yPos = yPos + 2
+  end
+
+  if totalCount == 0 then return 1.0 end
+  return scoreSum / totalCount
+end
+
+local function handleAI(paddleId, config, dt, enemyPaddleId, enemySpeed)
   local ballCenterY = ballY + BALL_SIZE / 2
   local paddleY = paddleId == 1 and paddle1Y or paddle2Y
   local paddleCenter = paddleY + PADDLE_H / 2
@@ -188,7 +279,90 @@ local function handleAI(paddleId, config, dt)
       if dx > 0 and math.abs(ballVX) > 1 then
         local t = dx / math.abs(ballVX)
         local half = BALL_SIZE / 2
-        targetY = reflect(ballCenterY + ballVY * t, half, 64 - half)
+        local arrivalBallCenter = reflect(ballCenterY + ballVY * t, half, 64 - half)
+
+        if config.preReflect then
+          local enemyEdgeX = enemyPaddleId == 1 and (PADDLE_MARGIN + PADDLE_W) or (128 - PADDLE_MARGIN - PADDLE_W)
+
+          local halfPad = PADDLE_H / 2
+          local minCenter = math.max(halfPad, arrivalBallCenter - halfPad - half + 1)
+          local maxCenter = math.min(64 - halfPad, arrivalBallCenter + halfPad + half - 1)
+
+          local aiReachNow = config.speed * t
+
+          local bestCenter = arrivalBallCenter
+          local bestScore = -math.huge
+
+          local depth = math.max(1, math.min(3, 5 - math.floor(dt * 100)))
+
+          local yPos = math.ceil(math.max(minCenter, paddleCenter - aiReachNow))
+          local yEnd = math.floor(math.min(maxCenter, paddleCenter + aiReachNow))
+
+          while yPos <= yEnd do
+            local relY = (arrivalBallCenter - yPos) / halfPad
+            if relY < -1 then relY = -1 end
+            if relY > 1 then relY = 1 end
+            local angle = relY * MAX_ANGLE_RAD
+            local mySpd = BALL_SPEEDS[diff] * speedMult
+            local myVX = (paddleId == 1) and mySpd * math.cos(angle) or -mySpd * math.cos(angle)
+            local myVY = mySpd * math.sin(angle)
+
+            local score = simulateBounce(paddleEdge, arrivalBallCenter, myVX, myVY, paddleId, enemyPaddleId, config.speed, enemySpeed, depth, paddleId)
+
+            if score > bestScore then
+              bestScore = score
+              bestCenter = yPos
+            end
+
+            yPos = yPos + 2
+          end
+
+          targetY = bestCenter
+        else
+          targetY = arrivalBallCenter
+        end
+      end
+    elseif config.preReflect then
+      local enemyPaddleYVal = enemyPaddleId == 1 and paddle1Y or paddle2Y
+      local enemyEdgeX = enemyPaddleId == 1 and (PADDLE_MARGIN + PADDLE_W) or (128 - PADDLE_MARGIN - PADDLE_W)
+      local dx = math.abs(enemyEdgeX - ballX)
+      if dx > 0 and math.abs(ballVX) > 1 then
+        local t = dx / math.abs(ballVX)
+        local half = BALL_SIZE / 2
+        local predictedBallY = ballCenterY + ballVY * t
+        local clampedPredictedY = reflect(predictedBallY, half, 64 - half)
+
+        local enemyReachMin = math.max(0, enemyPaddleYVal - enemySpeed * t)
+        local enemyReachMax = math.min(64 - PADDLE_H, enemyPaddleYVal + enemySpeed * t)
+
+        local hitYPositions = {}
+        local yStart = math.ceil(enemyReachMin)
+        local yEnd = math.floor(enemyReachMax)
+        for yPos = yStart, yEnd, 2 do
+          if clampedPredictedY + half > yPos and clampedPredictedY - half < yPos + PADDLE_H then
+            local paddleCenterY = yPos + PADDLE_H / 2
+            local relY = (predictedBallY - paddleCenterY) / (PADDLE_H / 2)
+            if relY < -1 then relY = -1 end
+            if relY > 1 then relY = 1 end
+            local angle = relY * MAX_ANGLE_RAD
+            local spd = BALL_SPEEDS[diff] * speedMult
+            local newVX = (enemyEdgeX < 64) and spd * math.cos(angle) or -spd * math.cos(angle)
+            local newVY = spd * math.sin(angle)
+
+            local ourEdgeX = paddleId == 1 and (PADDLE_MARGIN + PADDLE_W) or (128 - PADDLE_MARGIN - PADDLE_W)
+            local returnDx = math.abs(ourEdgeX - enemyEdgeX)
+            local returnT = returnDx / math.abs(newVX)
+            local finalY = reflect(clampedPredictedY + newVY * returnT, half, 64 - half)
+            table.insert(hitYPositions, finalY)
+          end
+        end
+        if #hitYPositions > 0 then
+          local sum = 0
+          for _, v in ipairs(hitYPositions) do sum = sum + v end
+          targetY = sum / #hitYPositions
+        else
+          targetY = ballCenterY
+        end
       end
     end
   end
@@ -214,7 +388,6 @@ local function paddleHit(paddleX, paddleY)
   if relY > 1 then relY = 1 end
   local angle = relY * MAX_ANGLE_RAD
   local spd = BALL_SPEEDS[diff] * speedMult
-  if spd > BALL_SPEEDS[3] * 2.5 then spd = BALL_SPEEDS[3] * 2.5 end
   if paddleX < 64 then
     ballVX = spd * math.cos(angle)
   else
@@ -223,6 +396,7 @@ local function paddleHit(paddleX, paddleY)
   ballVY = spd * math.sin(angle)
   rallyCount = rallyCount + 1
   speedMult = 1.0 + rallyCount * 0.04
+  ballHitCount = ballHitCount + 1
 end
 
 local function checkPaddleCollision()
@@ -259,7 +433,7 @@ end
 local function checkScoring()
   if ballX + BALL_SIZE < 0 then
     score2 = score2 + 1
-    if score2 >= WIN_SCORE then
+    if scoringMode == SCORING_FIRST and score2 >= winScore then
       if mode == 1 then gameWinner = "YOU LOSE!"
       elseif mode == 3 then gameWinner = "AI 2 WINS!"
       else gameWinner = "PLAYER 2 WINS!" end
@@ -272,7 +446,7 @@ local function checkScoring()
     return true
   elseif ballX > 128 then
     score1 = score1 + 1
-    if score1 >= WIN_SCORE then
+    if scoringMode == SCORING_FIRST and score1 >= winScore then
       if mode == 1 then gameWinner = "YOU WIN!"
       elseif mode == 3 then gameWinner = "AI 1 WINS!"
       else gameWinner = "PLAYER 1 WINS!" end
@@ -289,7 +463,7 @@ end
 
 local function updateBall(dt)
   local maxMove = math.max(math.abs(ballVX), math.abs(ballVY)) * dt
-  local steps = math.max(1, math.ceil(maxMove / 1.5))
+  local steps = math.max(1, math.ceil(maxMove / 1.0))
   local subDt = dt / steps
   for _ = 1, steps do
     ballX = ballX + ballVX * subDt
@@ -321,6 +495,21 @@ local function updateBall(dt)
   end
 end
 
+local function chooseSettings()
+  local c = showMenu("SCORING", { "First to", "Countdown", "Forever", "Cancel" })
+  if c < 0 or c == 4 then return end
+  if c == 1 then
+    local n = showMenu("FIRST TO", { "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "Cancel" })
+    if n >= 1 and n <= 10 then winScore = n; scoringMode = SCORING_FIRST end
+  elseif c == 2 then
+    local n = showMenu("COUNTDOWN", { "1:00", "3:00", "5:00", "10:00", "Cancel" })
+    local durations = { [1] = 60, [2] = 180, [3] = 300, [4] = 600 }
+    if n >= 1 and n <= 4 then countdownDuration = durations[n]; scoringMode = SCORING_COUNTDOWN end
+  elseif c == 3 then
+    scoringMode = SCORING_FOREVER
+  end
+end
+
 local function runSingleplayer()
   mode = 1
   aiConfig = AI_CONFIGS[diff]
@@ -338,8 +527,18 @@ local function runSingleplayer()
       end
     end
     handleP1Input(dt)
-    handleAI(2, aiConfig, dt)
+    handleAI(2, aiConfig, dt, 1, PADDLE_SPEED)
     updateBall(dt)
+    if scoringMode == SCORING_COUNTDOWN then
+      countdownRemaining = countdownRemaining - dt
+      if countdownRemaining <= 0 then
+        gameOver = true
+        if score1 > score2 then gameWinner = "YOU WIN!"
+        elseif score2 > score1 then gameWinner = "YOU LOSE!"
+        else gameWinner = "DRAW!" end
+        audio.playSfx("gameover.wav")
+      end
+    end
     drawGame()
     dt = yield()
   end
@@ -376,6 +575,16 @@ local function runMultiplayer()
     handleP1Input(dt)
     handleP2Input(dt)
     updateBall(dt)
+    if scoringMode == SCORING_COUNTDOWN then
+      countdownRemaining = countdownRemaining - dt
+      if countdownRemaining <= 0 then
+        gameOver = true
+        if score1 > score2 then gameWinner = "PLAYER 1 WINS!"
+        elseif score2 > score1 then gameWinner = "PLAYER 2 WINS!"
+        else gameWinner = "DRAW!" end
+        audio.playSfx("gameover.wav")
+      end
+    end
     drawGame()
     dt = yield()
   end
@@ -412,9 +621,19 @@ local function runAivsAI()
         dt = yield()
       end
     end
-    handleAI(1, aiConfig1, dt)
-    handleAI(2, aiConfig2, dt)
+    handleAI(1, aiConfig1, dt, 2, AI_CONFIGS[diff2].speed)
+    handleAI(2, aiConfig2, dt, 1, AI_CONFIGS[diff1].speed)
     updateBall(dt)
+    if scoringMode == SCORING_COUNTDOWN then
+      countdownRemaining = countdownRemaining - dt
+      if countdownRemaining <= 0 then
+        gameOver = true
+        if score1 > score2 then gameWinner = "AI 1 WINS!"
+        elseif score2 > score1 then gameWinner = "AI 2 WINS!"
+        else gameWinner = "DRAW!" end
+        audio.playSfx("gameover.wav")
+      end
+    end
     drawGame()
     dt = yield()
   end
@@ -435,21 +654,24 @@ end
 
 function loop(dt)
   while true do
-    local c = showMenu("PONG", { "Singleplayer", "Multiplayer", "AI vs AI", "Quit" })
-    if c < 0 or c == 4 then quit(); return end
+    local c = showMenu("PONG", { "Singleplayer", "Multiplayer", "AI vs AI", "Scoring: " .. scoringLabel(), "Quit" })
+    if c < 0 or c == 5 then quit(); return end
     if c == 1 then
-      local dc = showMenu("AI DIFFICULTY", { "Easy", "Medium", "Hard", "Back" })
-      if dc >= 1 and dc <= 3 then diff = dc; runSingleplayer() end
+      local dc = showMenu("AI DIFFICULTY", { "Easy", "Medium", "Hard", "Impossible", "Back" })
+      if dc >= 1 and dc <= 4 then diff = dc; runSingleplayer() end
     elseif c == 2 then
-      local dc = showMenu("BALL SPEED", { "Slow", "Normal", "Fast", "Back" })
-      if dc >= 1 and dc <= 3 then diff = dc; runMultiplayer() end
+      local dc = showMenu("BALL SPEED", { "Slow", "Normal", "Fast", "Impossible", "Back" })
+      if dc >= 1 and dc <= 4 then diff = dc; runMultiplayer() end
     elseif c == 3 then
-      local dc = showMenu("AI 1 DIFFICULTY", { "Easy", "Medium", "Hard", "Back" })
-      if dc >= 1 and dc <= 3 then
+      while true do
+        local dc = showMenu("AI 1 DIFFICULTY", { "Easy", "Medium", "Hard", "Impossible", "Back" })
+        if dc < 1 or dc > 4 then break end
         diff1 = dc
-        local dc2 = showMenu("AI 2 DIFFICULTY", { "Easy", "Medium", "Hard", "Back" })
-        if dc2 >= 1 and dc2 <= 3 then diff2 = dc2; runAivsAI() end
+        local dc2 = showMenu("AI 2 DIFFICULTY", { "Easy", "Medium", "Hard", "Impossible", "Back" })
+        if dc2 >= 1 and dc2 <= 4 then diff2 = dc2; runAivsAI(); break end
       end
+    elseif c == 4 then
+      chooseSettings()
     end
   end
 end
