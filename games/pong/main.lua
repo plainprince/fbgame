@@ -21,6 +21,7 @@ local aiTimer
 local blinkTimer, dismissTimer
 local speedMult, rallyCount
 local aiConfig
+local diff1, diff2
 
 local trailStore = {}
 local trailDrawPositions = {}
@@ -172,30 +173,35 @@ local function reflect(y, min, max)
   return max - (wrapped - range)
 end
 
-local function handleAI(dt)
+local function handleAI(paddleId, config, dt)
   local ballCenterY = ballY + BALL_SIZE / 2
-  local paddleCenter = paddle2Y + PADDLE_H / 2
+  local paddleY = paddleId == 1 and paddle1Y or paddle2Y
+  local paddleCenter = paddleY + PADDLE_H / 2
 
   local targetY = ballCenterY
 
-  if aiConfig.predict and ballVX > 0 then
-    local dx = (128 - PADDLE_MARGIN - PADDLE_W) - ballX
-    if dx > 0 and math.abs(ballVX) > 1 then
-      local t = dx / ballVX
-      local half = BALL_SIZE / 2
-      targetY = reflect(ballCenterY + ballVY * t, half, 64 - half)
+  if config.predict then
+    local ballMovingToward = (paddleId == 1 and ballVX < 0) or (paddleId == 2 and ballVX > 0)
+    if ballMovingToward then
+      local paddleEdge = paddleId == 1 and (PADDLE_MARGIN + PADDLE_W) or (128 - PADDLE_MARGIN - PADDLE_W)
+      local dx = math.abs(paddleEdge - ballX)
+      if dx > 0 and math.abs(ballVX) > 1 then
+        local t = dx / math.abs(ballVX)
+        local half = BALL_SIZE / 2
+        targetY = reflect(ballCenterY + ballVY * t, half, 64 - half)
+      end
     end
   end
 
   local diffY = targetY - paddleCenter
   if math.abs(diffY) > 1 then
-    local step = aiConfig.speed * dt
+    local step = config.speed * dt
     if diffY > 0 then
-      paddle2Y = paddle2Y + step
+      if paddleId == 1 then paddle1Y = paddle1Y + step else paddle2Y = paddle2Y + step end
     else
-      paddle2Y = paddle2Y - step
+      if paddleId == 1 then paddle1Y = paddle1Y - step else paddle2Y = paddle2Y - step end
     end
-    clampPaddle(2)
+    clampPaddle(paddleId)
   end
 end
 
@@ -254,7 +260,9 @@ local function checkScoring()
   if ballX + BALL_SIZE < 0 then
     score2 = score2 + 1
     if score2 >= WIN_SCORE then
-      if mode == 1 then gameWinner = "YOU LOSE!" else gameWinner = "PLAYER 2 WINS!" end
+      if mode == 1 then gameWinner = "YOU LOSE!"
+      elseif mode == 3 then gameWinner = "AI 2 WINS!"
+      else gameWinner = "PLAYER 2 WINS!" end
       gameOver = true
       audio.playSfx("gameover.wav")
     else
@@ -265,7 +273,9 @@ local function checkScoring()
   elseif ballX > 128 then
     score1 = score1 + 1
     if score1 >= WIN_SCORE then
-      if mode == 1 then gameWinner = "YOU WIN!" else gameWinner = "PLAYER 1 WINS!" end
+      if mode == 1 then gameWinner = "YOU WIN!"
+      elseif mode == 3 then gameWinner = "AI 1 WINS!"
+      else gameWinner = "PLAYER 1 WINS!" end
       gameOver = true
       audio.playSfx("gameover.wav")
     else
@@ -328,7 +338,7 @@ local function runSingleplayer()
       end
     end
     handleP1Input(dt)
-    handleAI(dt)
+    handleAI(2, aiConfig, dt)
     updateBall(dt)
     drawGame()
     dt = yield()
@@ -384,16 +394,62 @@ local function runMultiplayer()
   end
 end
 
+local function runAivsAI()
+  mode = 3
+  diff = math.max(diff1, diff2)
+  local aiConfig1 = AI_CONFIGS[diff1]
+  local aiConfig2 = AI_CONFIGS[diff2]
+  resetGame()
+  local dt = 0
+  while not gameOver do
+    if input.keyPress("KEY_ESCAPE") then
+      while true do
+        if input.keyPress("KEY_ESCAPE") then return
+        elseif input.keyPress("KEY_ENTER") or input.keyPress("KEY_SPACE") then break end
+        drawGame()
+        render.fillRect(0, 20, 128, 24, Color(10, 10, 10))
+        render.text(0, 24, "PAUSED\nENTER: CONTINUE\nESC: EXIT", COLOR_WHITE, 128, 1, true)
+        dt = yield()
+      end
+    end
+    handleAI(1, aiConfig1, dt)
+    handleAI(2, aiConfig2, dt)
+    updateBall(dt)
+    drawGame()
+    dt = yield()
+  end
+  blinkTimer = 0
+  dismissTimer = 0.5
+  dt = 0
+  while true do
+    if dismissTimer <= 0 and (input.keyPress("KEY_ESCAPE") or input.keyPress("KEY_ENTER") or input.keyPress("KEY_SPACE")) then
+      return
+    end
+    dismissTimer = dismissTimer - dt
+    blinkTimer = blinkTimer + dt
+    drawGameOverScreen()
+    if blinkTimer >= 1.0 then blinkTimer = blinkTimer - 1.0 end
+    dt = yield()
+  end
+end
+
 function loop(dt)
   while true do
-    local c = showMenu("PONG", { "Singleplayer", "Multiplayer", "Quit" })
-    if c < 0 or c == 3 then quit(); return end
+    local c = showMenu("PONG", { "Singleplayer", "Multiplayer", "AI vs AI", "Quit" })
+    if c < 0 or c == 4 then quit(); return end
     if c == 1 then
       local dc = showMenu("AI DIFFICULTY", { "Easy", "Medium", "Hard", "Back" })
       if dc >= 1 and dc <= 3 then diff = dc; runSingleplayer() end
     elseif c == 2 then
       local dc = showMenu("BALL SPEED", { "Slow", "Normal", "Fast", "Back" })
       if dc >= 1 and dc <= 3 then diff = dc; runMultiplayer() end
+    elseif c == 3 then
+      local dc = showMenu("AI 1 DIFFICULTY", { "Easy", "Medium", "Hard", "Back" })
+      if dc >= 1 and dc <= 3 then
+        diff1 = dc
+        local dc2 = showMenu("AI 2 DIFFICULTY", { "Easy", "Medium", "Hard", "Back" })
+        if dc2 >= 1 and dc2 <= 3 then diff2 = dc2; runAivsAI() end
+      end
     end
   end
 end

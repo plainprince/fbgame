@@ -9,8 +9,6 @@
 #include <input.hpp>
 #include <theme.hpp>
 #include <font.hpp>
-#include <save.hpp>
-
 struct MenuItem {
     std::string label;
     std::function<void()> action;
@@ -31,7 +29,7 @@ struct SubGame {
 
 class DefaultMenu {
 public:
-    DefaultMenu(Renderer2D* r, InputManager* inp, Font* f, Theme* t, SaveManager* s);
+    DefaultMenu(Renderer2D* r, InputManager* inp, Font* f, Theme* t);
     ~DefaultMenu();
 
     void addItem(const MenuItem& item);
@@ -68,7 +66,6 @@ private:
     InputManager* input;
     Font* font;
     Theme* theme;
-    SaveManager* save;
 
     std::string title;
     std::string subtitle;

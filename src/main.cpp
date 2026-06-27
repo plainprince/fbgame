@@ -320,12 +320,12 @@ int main(int argc, char* argv[]) {
     renderer.setTheme(&theme);
     renderer.setMonoConversion(theme.getInt("mono_conversion", 0));
 
-    DefaultMenu menu(&renderer, &input, &menuFont, &theme, &save);
+    DefaultMenu menu(&renderer, &input, &menuFont, &theme);
     menu.setTitle("FBGAME");
-    menu.setSubtitle("Select a game");
+    menu.setSubtitle("Main Menu");
 
     menu.addItem("PLAY", [&]() {
-        DefaultMenu playMenu(&renderer, &input, &menuFont, &theme, &save);
+        DefaultMenu playMenu(&renderer, &input, &menuFont, &theme);
         playMenu.setTitle("SELECT GAME");
         playMenu.setSubtitle("Choose a game to play");
         playMenu.addItem("BACK", [&]() { playMenu.close(); });
@@ -351,7 +351,7 @@ int main(int argc, char* argv[]) {
     });
 
     menu.addItem("SETTINGS", [&]() {
-        DefaultMenu sub(&renderer, &input, &menuFont, &theme, &save);
+        DefaultMenu sub(&renderer, &input, &menuFont, &theme);
         sub.setTitle("SETTINGS");
         sub.setSubtitle("Configure your experience");
         sub.addItem("BACK", [&]() { saveFontSettings(menuFont); sub.close(); });
@@ -361,7 +361,7 @@ int main(int argc, char* argv[]) {
             saveSetting("orientation", orient);
         });
         sub.addItem("THEMES", [&]() {
-            DefaultMenu themeMenu(&renderer, &input, &menuFont, &theme, &save);
+            DefaultMenu themeMenu(&renderer, &input, &menuFont, &theme);
             themeMenu.setTitle("THEMES");
             themeMenu.setSubtitle("Select a theme");
             themeMenu.addItem("BACK", [&]() { themeMenu.close(); });
@@ -388,7 +388,7 @@ int main(int argc, char* argv[]) {
             MenuItem volItem;
             volItem.dynamicLabel = volLabel;
             volItem.action = [&, volLabel]() {
-                DefaultMenu volMenu(&renderer, &input, &menuFont, &theme, &save);
+                DefaultMenu volMenu(&renderer, &input, &menuFont, &theme);
                 volMenu.setTitle("VOLUME");
                 volMenu.setSubtitle("Select volume level");
                 volMenu.addItem("BACK", [&]() { volMenu.close(); });
@@ -409,13 +409,13 @@ int main(int argc, char* argv[]) {
             sub.addItem(volItem);
         }
         sub.addItem("FONTS", [&]() {
-            DefaultMenu fontMenu(&renderer, &input, &menuFont, &theme, &save);
+            DefaultMenu fontMenu(&renderer, &input, &menuFont, &theme);
             fontMenu.setTitle("FONTS");
             fontMenu.setSubtitle("Letter and line spacing");
             fontMenu.addItem("BACK", [&]() { saveFontSettings(menuFont); fontMenu.close(); });
             fontMenu.addItem("SELECT FONT [" + gFontName + "]", [&]() {
                 auto available = scanFonts();
-                DefaultMenu selMenu(&renderer, &input, &menuFont, &theme, &save);
+                DefaultMenu selMenu(&renderer, &input, &menuFont, &theme);
                 selMenu.setTitle("SELECT FONT");
                 selMenu.setSubtitle("Choose display font");
                 selMenu.addItem("BACK", [&]() { selMenu.close(); });
@@ -445,7 +445,7 @@ int main(int argc, char* argv[]) {
                 selMenu.run();
             });
             fontMenu.addItem("CHAR GAP: " + std::to_string(menuFont.charGap()), [&]() {
-                DefaultMenu cgMenu(&renderer, &input, &menuFont, &theme, &save);
+                DefaultMenu cgMenu(&renderer, &input, &menuFont, &theme);
                 cgMenu.setTitle("CHARACTER GAP");
                 cgMenu.setSubtitle("Space between letters");
                 cgMenu.addItem("BACK", [&]() { saveFontSettings(menuFont); cgMenu.close(); });
@@ -460,7 +460,7 @@ int main(int argc, char* argv[]) {
                 cgMenu.run();
             });
             fontMenu.addItem("TOP GAP: " + std::to_string(menuFont.topGap()), [&]() {
-                DefaultMenu tgMenu(&renderer, &input, &menuFont, &theme, &save);
+                DefaultMenu tgMenu(&renderer, &input, &menuFont, &theme);
                 tgMenu.setTitle("TOP GAP");
                 tgMenu.setSubtitle("Padding above text line");
                 tgMenu.addItem("BACK", [&]() { saveFontSettings(menuFont); tgMenu.close(); });
@@ -475,7 +475,7 @@ int main(int argc, char* argv[]) {
                 tgMenu.run();
             });
             fontMenu.addItem("BOTTOM GAP: " + std::to_string(menuFont.bottomGap()), [&]() {
-                DefaultMenu bgMenu(&renderer, &input, &menuFont, &theme, &save);
+                DefaultMenu bgMenu(&renderer, &input, &menuFont, &theme);
                 bgMenu.setTitle("BOTTOM GAP");
                 bgMenu.setSubtitle("Padding below text line");
                 bgMenu.addItem("BACK", [&]() { saveFontSettings(menuFont); bgMenu.close(); });
@@ -499,17 +499,9 @@ int main(int argc, char* argv[]) {
         appRunning = false;
     });
 
-    std::thread renderThread([&renderer]() {
-        pinToCore(2);
-        while (appRunning)
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000 / 60));
-    });
-
-    pinToCore(0);
     menu.run();
 
     appRunning = false;
-    if (renderThread.joinable()) renderThread.join();
     audio.shutdown();
     save.shutdown();
     input.shutdown();

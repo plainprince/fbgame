@@ -1,2 +1,2 @@
 #!/bin/bash
-scp -r $(find . -maxdepth 1 ! -name copy.sh ! -name . ! -name .git | sed 's|^\./||' | tr '\n' ' ') plainprince@raspzero:/home/plainprince/fbgame
+rsync -av --exclude='copy.sh' --exclude='.git' --exclude='.DS_Store' . plainprince@raspzero:/home/plainprince/fbgame

@@ -4,8 +4,8 @@
 #include <thread>
 #include <chrono>
 
-DefaultMenu::DefaultMenu(Renderer2D* r, InputManager* inp, Font* f, Theme* t, SaveManager* s)
-    : renderer(r), input(inp), font(f), theme(t), save(s) {
+DefaultMenu::DefaultMenu(Renderer2D* r, InputManager* inp, Font* f, Theme* t)
+    : renderer(r), input(inp), font(f), theme(t) {
     title = "FBGAME MENU";
     subtitle = "Select a game";
 }
