@@ -9,12 +9,13 @@ local SCORING_FIRST = 1
 local SCORING_COUNTDOWN = 2
 local SCORING_FOREVER = 3
 
-local BALL_SPEEDS = { [1] = 30, [2] = 48, [3] = 70, [4] = 100 }
+local BALL_SPEEDS = { [1] = 30, [2] = 48, [3] = 70, [4] = 100, [5] = 100 }
 local AI_CONFIGS = {
   [1] = { speed = 15 },
   [2] = { speed = 35 },
   [3] = { speed = 48, predict = true },
-  [4] = { speed = PADDLE_SPEED, predict = true, preReflect = true },
+  [4] = { speed = PADDLE_SPEED, predict = true, preReflect = true, aggressive = true },
+  [5] = { speed = PADDLE_SPEED, predict = true, preReflect = true },
 }
 
 local ballX, ballY, ballVX, ballVY
@@ -281,7 +282,7 @@ local function handleAI(paddleId, config, dt, enemyPaddleId, enemySpeed)
         local half = BALL_SIZE / 2
         local arrivalBallCenter = reflect(ballCenterY + ballVY * t, half, 64 - half)
 
-        if config.preReflect then
+        if config.preReflect and config.aggressive then
           local enemyEdgeX = enemyPaddleId == 1 and (PADDLE_MARGIN + PADDLE_W) or (128 - PADDLE_MARGIN - PADDLE_W)
 
           local halfPad = PADDLE_H / 2
@@ -657,18 +658,18 @@ function loop(dt)
     local c = showMenu("PONG", { "Singleplayer", "Multiplayer", "AI vs AI", "Scoring: " .. scoringLabel(), "Quit" })
     if c < 0 or c == 5 then quit(); return end
     if c == 1 then
-      local dc = showMenu("AI DIFFICULTY", { "Easy", "Medium", "Hard", "Impossible", "Back" })
-      if dc >= 1 and dc <= 4 then diff = dc; runSingleplayer() end
+      local dc = showMenu("AI DIFFICULTY", { "Easy", "Medium", "Hard", "Defensive", "Impossible", "Back" })
+      if dc >= 1 and dc <= 5 then diff = dc; runSingleplayer() end
     elseif c == 2 then
-      local dc = showMenu("BALL SPEED", { "Slow", "Normal", "Fast", "Impossible", "Back" })
-      if dc >= 1 and dc <= 4 then diff = dc; runMultiplayer() end
+      local dc = showMenu("BALL SPEED", { "Slow", "Normal", "Fast", "Defensive", "Impossible", "Back" })
+      if dc >= 1 and dc <= 5 then diff = dc; runMultiplayer() end
     elseif c == 3 then
       while true do
-        local dc = showMenu("AI 1 DIFFICULTY", { "Easy", "Medium", "Hard", "Impossible", "Back" })
-        if dc < 1 or dc > 4 then break end
+        local dc = showMenu("AI 1 DIFFICULTY", { "Easy", "Medium", "Hard", "Defensive", "Impossible", "Back" })
+        if dc < 1 or dc > 5 then break end
         diff1 = dc
-        local dc2 = showMenu("AI 2 DIFFICULTY", { "Easy", "Medium", "Hard", "Impossible", "Back" })
-        if dc2 >= 1 and dc2 <= 4 then diff2 = dc2; runAivsAI(); break end
+        local dc2 = showMenu("AI 2 DIFFICULTY", { "Easy", "Medium", "Hard", "Defensive", "Impossible", "Back" })
+        if dc2 >= 1 and dc2 <= 5 then diff2 = dc2; runAivsAI(); break end
       end
     elseif c == 4 then
       chooseSettings()
