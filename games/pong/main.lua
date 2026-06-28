@@ -9,13 +9,14 @@ local SCORING_FIRST = 1
 local SCORING_COUNTDOWN = 2
 local SCORING_FOREVER = 3
 
-local BALL_SPEEDS = { [1] = 30, [2] = 48, [3] = 70, [4] = 100, [5] = 100 }
+local BALL_SPEEDS = { [1] = 30, [2] = 48, [3] = 70, [4] = 100, [5] = 100, [6] = 100 }
 local AI_CONFIGS = {
   [1] = { speed = 15 },
   [2] = { speed = 35 },
   [3] = { speed = 48, predict = true },
   [4] = { speed = PADDLE_SPEED, predict = true, preReflect = true, aggressive = true },
   [5] = { speed = PADDLE_SPEED, predict = true, preReflect = true },
+  [6] = { rl = true, speed = PADDLE_SPEED },
 }
 
 local ballX, ballY, ballVX, ballVY
@@ -27,6 +28,12 @@ local blinkTimer, dismissTimer
 local speedMult, rallyCount
 local aiConfig
 local diff1, diff2
+
+local rl_net
+local rl_net2
+local rl_paddle
+local rl_path = "games/pong/rl_weights.dat"
+local rl_path2 = "games/pong/rl_weights2.dat"
 
 local scoringMode = SCORING_FIRST
 local winScore = 5
@@ -50,6 +57,42 @@ function setup()
   render.mapColor(Color(63, 63, 63), 0)
   render.mapColor(Color(38, 38, 38), 0)
   render.mapColor(Color(20, 20, 20), 0)
+
+  if type(rl) == "table" and rl.new then
+    rl_net = rl.new()
+    rl_net2 = rl.new()
+    if rl_net then rl_net:load(rl_path) end
+    if rl_net2 then rl_net2:load(rl_path2) end
+  end
+end
+
+local function rlObs(paddleId)
+  local ey = paddleId == 1 and paddle2Y or paddle1Y
+  return {
+    ballX / 128, ballY / 64, ballVX / 100, ballVY / 100,
+    (paddleId == 1 and paddle1Y or paddle2Y) / 64, ey / 64
+  }
+end
+
+local function rlAct(paddleId)
+  local net = paddleId == 1 and rl_net or rl_net2
+  if not net then return 1 end
+  local obs = rlObs(paddleId)
+  local ok, action = pcall(function() return rl.act(net, obs) end)
+  if not ok then return 1 end
+  return action
+end
+
+local function rlTrain(paddleId, reward)
+  local net = paddleId == 1 and rl_net or rl_net2
+  if not net then return end
+  pcall(function() rl.train(net, reward, true) end)
+end
+
+local function rlSave()
+  if not rl_net then return end
+  pcall(function() rl.save(rl_net, rl_path) end)
+  pcall(function() rl.save(rl_net2, rl_path2) end)
 end
 
 local function formatTime(seconds)
@@ -101,6 +144,7 @@ local function resetGame()
   trailStore = {}
   trailDrawPositions = {}
   ballHitCount = 0
+  rl_paddle = nil
   if scoringMode == SCORING_COUNTDOWN then
     countdownRemaining = countdownDuration
   end
@@ -271,6 +315,29 @@ local function handleAI(paddleId, config, dt, enemyPaddleId, enemySpeed)
   local paddleCenter = paddleY + PADDLE_H / 2
 
   local targetY = ballCenterY
+
+  if config.rl then
+    rl_paddle = paddleId
+    local action = rlAct(paddleId)
+    if action == 0 then
+      targetY = paddleY - config.speed * dt
+    elseif action == 2 then
+      targetY = paddleY + config.speed * dt
+    else
+      targetY = paddleY
+    end
+    local diffY = targetY - paddleCenter
+    if math.abs(diffY) > 1 then
+      local step = config.speed * dt
+      if diffY > 0 then
+        if paddleId == 1 then paddle1Y = paddle1Y + step else paddle2Y = paddle2Y + step end
+      else
+        if paddleId == 1 then paddle1Y = paddle1Y - step else paddle2Y = paddle2Y - step end
+      end
+      clampPaddle(paddleId)
+    end
+    return
+  end
 
   if config.predict then
     local ballMovingToward = (paddleId == 1 and ballVX < 0) or (paddleId == 2 and ballVX > 0)
@@ -449,6 +516,7 @@ end
 local function checkScoring()
   if ballX + BALL_SIZE < 0 then
     score2 = score2 + 1
+    onPoint(2)
     if scoringMode == SCORING_FIRST and score2 >= winScore then
       if mode == 1 then gameWinner = "YOU LOSE!"
       elseif mode == 3 then gameWinner = "AI 2 WINS!"
@@ -462,6 +530,7 @@ local function checkScoring()
     return true
   elseif ballX > 128 then
     score1 = score1 + 1
+    onPoint(1)
     if scoringMode == SCORING_FIRST and score1 >= winScore then
       if mode == 1 then gameWinner = "YOU WIN!"
       elseif mode == 3 then gameWinner = "AI 1 WINS!"
@@ -475,6 +544,27 @@ local function checkScoring()
     return true
   end
   return false
+end
+
+local function onPoint(scoringPaddle)
+  if not rl_net then return end
+  if rl_paddle then
+    if scoringPaddle == rl_paddle then
+      rlTrain(rl_paddle, 1)
+    elseif scoringPaddle ~= 0 then
+      local other = scoringPaddle == 1 and 2 or 1
+      if other == rl_paddle then
+        rlTrain(rl_paddle, -1)
+      end
+    end
+  end
+  if diff1 == 6 and scoringPaddle ~= 0 then
+    rlTrain(1, scoringPaddle == 1 and 1 or -1)
+  end
+  if diff2 == 6 and scoringPaddle ~= 0 then
+    rlTrain(2, scoringPaddle == 2 and 1 or -1)
+  end
+  rlSave()
 end
 
 local function updateBall(dt)
@@ -673,18 +763,18 @@ function loop(dt)
     local c = showMenu("PONG", { "Singleplayer", "Multiplayer", "AI vs AI", "Scoring: " .. scoringLabel(), "Quit" })
     if c < 0 or c == 5 then quit(); return end
     if c == 1 then
-      local dc = showMenu("AI DIFFICULTY", { "Easy", "Medium", "Hard", "Impossible offensive", "Impossible defensive", "Back" })
-      if dc >= 1 and dc <= 5 then diff = dc; runSingleplayer() end
+      local dc = showMenu("AI DIFFICULTY", { "Easy", "Medium", "Hard", "Impossible offensive", "Impossible defensive", "RL", "Back" })
+      if dc >= 1 and dc <= 6 then diff = dc; runSingleplayer() end
     elseif c == 2 then
       local dc = showMenu("BALL SPEED", { "Slow", "Normal", "Fast", "Defensive", "Impossible", "Back" })
       if dc >= 1 and dc <= 5 then diff = dc; runMultiplayer() end
     elseif c == 3 then
       while true do
-        local dc = showMenu("AI 1 DIFFICULTY", { "Easy", "Medium", "Hard", "Impossible offensive", "Impossible defensive", "Back" })
-        if dc < 1 or dc > 5 then break end
+        local dc = showMenu("AI 1 DIFFICULTY", { "Easy", "Medium", "Hard", "Impossible offensive", "Impossible defensive", "RL", "Back" })
+        if dc < 1 or dc > 6 then break end
         diff1 = dc
-        local dc2 = showMenu("AI 2 DIFFICULTY", { "Easy", "Medium", "Hard", "Impossible offensive", "Impossible defensive", "Back" })
-        if dc2 >= 1 and dc2 <= 5 then diff2 = dc2; runAivsAI(); break end
+        local dc2 = showMenu("AI 2 DIFFICULTY", { "Easy", "Medium", "Hard", "Impossible offensive", "Impossible defensive", "RL", "Back" })
+        if dc2 >= 1 and dc2 <= 6 then diff2 = dc2; runAivsAI(); break end
       end
     elseif c == 4 then
       chooseSettings()
@@ -693,5 +783,6 @@ function loop(dt)
 end
 
 function shutdown()
+  rlSave()
   render.clear(Color(10, 10, 10))
 end

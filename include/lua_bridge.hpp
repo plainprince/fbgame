@@ -101,6 +101,11 @@ private:
     static int luaStringStartswith(lua_State* L);
     static int luaStringEndswith(lua_State* L);
     static int luaSchedulerAfter(lua_State* L);
+    static int luaRlNew(lua_State* L);
+    static int luaRlAct(lua_State* L);
+    static int luaRlTrain(lua_State* L);
+    static int luaRlSave(lua_State* L);
+    static int luaRlLoad(lua_State* L);
 
     void registerFuncs(lua_State* L);
 
@@ -110,20 +115,14 @@ private:
     bool firstLoop{true};
 };
 
-#if LUA_VERSION_NUM >= 502
 inline int lua_resume_loop(lua_State* L, lua_State* from, int narg, int* nresults) {
+#if LUA_VERSION_NUM >= 502
     return lua_resume(L, from, narg, nresults);
+#else
+    (void)from; (void)nresults;
+    return lua_resume(L, narg);
+#endif
 }
 inline void luaL_setfuncs_loop(lua_State* L, const luaL_Reg* reg, int nup) {
     luaL_setfuncs(L, reg, nup);
 }
-#else
-inline int lua_resume_loop(lua_State* L, lua_State* from, int narg, int* nresults) {
-    (void)from; (void)nresults;
-    return lua_resume(L, narg);
-}
-inline void luaL_setfuncs_loop(lua_State* L, const luaL_Reg* reg, int nup) {
-    (void)nup;
-    luaL_register(L, nullptr, reg);
-}
-#endif
