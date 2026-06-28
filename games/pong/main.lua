@@ -291,15 +291,12 @@ local function handleAI(paddleId, config, dt, enemyPaddleId, enemySpeed)
 
           local aiReachNow = config.speed * t
 
-          local bestCenter = arrivalBallCenter
-          local bestScore = -math.huge
-
           local depth = math.max(1, math.min(3, 5 - math.floor(dt * 100)))
 
-          local yPos = math.ceil(math.max(minCenter, paddleCenter - aiReachNow))
-          local yEnd = math.floor(math.min(maxCenter, paddleCenter + aiReachNow))
+          local cornerTop = math.ceil(arrivalBallCenter - halfPad)
+          local cornerBot = math.floor(arrivalBallCenter + halfPad)
 
-          while yPos <= yEnd do
+          local function evalShot(yPos)
             local relY = (arrivalBallCenter - yPos) / halfPad
             if relY < -1 then relY = -1 end
             if relY > 1 then relY = 1 end
@@ -307,18 +304,36 @@ local function handleAI(paddleId, config, dt, enemyPaddleId, enemySpeed)
             local mySpd = BALL_SPEEDS[diff] * speedMult
             local myVX = (paddleId == 1) and mySpd * math.cos(angle) or -mySpd * math.cos(angle)
             local myVY = mySpd * math.sin(angle)
-
-            local score = simulateBounce(paddleEdge, arrivalBallCenter, myVX, myVY, paddleId, enemyPaddleId, config.speed, enemySpeed, depth, paddleId)
-
-            if score > bestScore then
-              bestScore = score
-              bestCenter = yPos
-            end
-
-            yPos = yPos + 2
+            return simulateBounce(paddleEdge, arrivalBallCenter, myVX, myVY, paddleId, enemyPaddleId, config.speed, enemySpeed, depth, paddleId)
           end
 
-          targetY = bestCenter
+          local safeCorner = nil
+          local corners = {cornerTop, cornerBot}
+          for _, cy in ipairs(corners) do
+            if cy >= minCenter and cy <= maxCenter then
+              local s = evalShot(cy)
+              if s >= 0.85 then safeCorner = cy; break end
+            end
+          end
+
+          if safeCorner then
+            targetY = safeCorner
+          else
+            local bestCenter = arrivalBallCenter
+            local bestScore = -math.huge
+            local yPos = math.ceil(math.max(minCenter, paddleCenter - aiReachNow))
+            local yEnd = math.floor(math.min(maxCenter, paddleCenter + aiReachNow))
+
+            while yPos <= yEnd do
+              local score = evalShot(yPos)
+              if score > bestScore then
+                bestScore = score
+                bestCenter = yPos
+              end
+              yPos = yPos + 2
+            end
+            targetY = bestCenter
+          end
         else
           targetY = arrivalBallCenter
         end
@@ -658,17 +673,17 @@ function loop(dt)
     local c = showMenu("PONG", { "Singleplayer", "Multiplayer", "AI vs AI", "Scoring: " .. scoringLabel(), "Quit" })
     if c < 0 or c == 5 then quit(); return end
     if c == 1 then
-      local dc = showMenu("AI DIFFICULTY", { "Easy", "Medium", "Hard", "Defensive", "Impossible", "Back" })
+      local dc = showMenu("AI DIFFICULTY", { "Easy", "Medium", "Hard", "Impossible offensive", "Impossible defensive", "Back" })
       if dc >= 1 and dc <= 5 then diff = dc; runSingleplayer() end
     elseif c == 2 then
       local dc = showMenu("BALL SPEED", { "Slow", "Normal", "Fast", "Defensive", "Impossible", "Back" })
       if dc >= 1 and dc <= 5 then diff = dc; runMultiplayer() end
     elseif c == 3 then
       while true do
-        local dc = showMenu("AI 1 DIFFICULTY", { "Easy", "Medium", "Hard", "Defensive", "Impossible", "Back" })
+        local dc = showMenu("AI 1 DIFFICULTY", { "Easy", "Medium", "Hard", "Impossible offensive", "Impossible defensive", "Back" })
         if dc < 1 or dc > 5 then break end
         diff1 = dc
-        local dc2 = showMenu("AI 2 DIFFICULTY", { "Easy", "Medium", "Hard", "Defensive", "Impossible", "Back" })
+        local dc2 = showMenu("AI 2 DIFFICULTY", { "Easy", "Medium", "Hard", "Impossible offensive", "Impossible defensive", "Back" })
         if dc2 >= 1 and dc2 <= 5 then diff2 = dc2; runAivsAI(); break end
       end
     elseif c == 4 then

@@ -22,13 +22,6 @@ local padX1, padX2, padY
 local wallLeft, wallRight
 local terrainSamples = {}
 
-local function hash11(x)
-  x = ((x >> 13) ~ x) * 0x45d9f3b
-  x = ((x >> 13) ~ x) * 0x45d9f3b
-  x = (x >> 13) ~ x
-  return (x & 0x7fffffff) / 0x7fffffff
-end
-
 local function sampleHeight(wx)
   local key = math.floor(wx / TERRAIN_STEP) * TERRAIN_STEP
   if terrainSamples[key] then
@@ -39,8 +32,8 @@ local function sampleHeight(wx)
     h = padY
   else
     local d = math.min(math.abs(key - padX1), math.abs(key - padX2))
-    local r1 = hash11(key)
-    local r2 = hash11(key * 7 + 12345)
+    local r1 = util.hash11(key)
+    local r2 = util.hash11(key * 7 + 12345)
     local rough = math.min(d / 200, 1)
     local amp = 2 + rough * 22
     local n = r1 - 0.5
@@ -128,8 +121,8 @@ local function drawStars()
   local wxStart = math.floor(cameraX)
   for sx = 0, 127 do
     local wx = wxStart + sx
-    if hash11(wx * 17 + 999) > 0.9 then
-      local sy = math.floor(hash11(wx * 31 + 555) * 64)
+    if util.hash11(wx * 17 + 999) > 0.9 then
+      local sy = math.floor(util.hash11(wx * 31 + 555) * 64)
       if sy >= 0 and sy < 64 then
         render.pixel(sx, sy, Color(60, 60, 60))
       end

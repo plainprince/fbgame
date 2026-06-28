@@ -2,9 +2,7 @@
 #include <string>
 #include <functional>
 extern "C" {
-#include <lua5.4/lua.h>
-#include <lua5.4/lauxlib.h>
-#include <lua5.4/lualib.h>
+#include <lua.hpp>
 }
 #include <render.hpp>
 #include <input.hpp>
@@ -74,6 +72,35 @@ private:
     static int luaYield(lua_State* L);
     static int luaMenuCreate(lua_State* L);
     static int luaMenuTick(lua_State* L);
+    static int luaHash11(lua_State* L);
+    static int luaBshl(lua_State* L);
+    static int luaBshr(lua_State* L);
+    static int luaBnot(lua_State* L);
+    static int luaBand(lua_State* L);
+    static int luaBor(lua_State* L);
+    static int luaBxor(lua_State* L);
+    static int luaClamp(lua_State* L);
+    static int luaLerp(lua_State* L);
+    static int luaMap(lua_State* L);
+    static int luaSign(lua_State* L);
+    static int luaWrap(lua_State* L);
+    static int luaTablePack(lua_State* L);
+    static int luaTableMerge(lua_State* L);
+    static int luaTimeNow(lua_State* L);
+    static int luaTimeMs(lua_State* L);
+    static int luaMathClamp(lua_State* L);
+    static int luaMathLerp(lua_State* L);
+    static int luaMathSign(lua_State* L);
+    static int luaMathRound(lua_State* L);
+    static int luaMathAbsfast(lua_State* L);
+    static int luaRngNew(lua_State* L);
+    static int luaRngInt(lua_State* L);
+    static int luaRngFloat(lua_State* L);
+    static int luaStringSplit(lua_State* L);
+    static int luaStringTrim(lua_State* L);
+    static int luaStringStartswith(lua_State* L);
+    static int luaStringEndswith(lua_State* L);
+    static int luaSchedulerAfter(lua_State* L);
 
     void registerFuncs(lua_State* L);
 
@@ -82,3 +109,21 @@ private:
     int loopThreadRef{LUA_REFNIL};
     bool firstLoop{true};
 };
+
+#if LUA_VERSION_NUM >= 502
+inline int lua_resume_loop(lua_State* L, lua_State* from, int narg, int* nresults) {
+    return lua_resume(L, from, narg, nresults);
+}
+inline void luaL_setfuncs_loop(lua_State* L, const luaL_Reg* reg, int nup) {
+    luaL_setfuncs(L, reg, nup);
+}
+#else
+inline int lua_resume_loop(lua_State* L, lua_State* from, int narg, int* nresults) {
+    (void)from; (void)nresults;
+    return lua_resume(L, narg);
+}
+inline void luaL_setfuncs_loop(lua_State* L, const luaL_Reg* reg, int nup) {
+    (void)nup;
+    luaL_register(L, nullptr, reg);
+}
+#endif

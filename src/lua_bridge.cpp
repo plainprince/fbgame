@@ -1,7 +1,12 @@
 #include <lua_bridge.hpp>
+#include <chrono>
+#include <cmath>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <vector>
+
 
 LuaBridge::LuaBridge() : L(nullptr), gs(nullptr) {}
 LuaBridge::~LuaBridge() { close(); }
@@ -362,7 +367,11 @@ int LuaBridge::luaMenuTick(lua_State* S) {
     lua_pop(S, 1);
 
     lua_getfield(S, -1, "items");
-    int n = lua_rawlen(S, -1);
+#if LUA_VERSION_NUM >= 502
+    int n = (int)lua_rawlen(S, -1);
+#else
+    int n = (int)lua_objlen(S, -1);
+#endif
     if (n == 0) { lua_pushinteger(S, -1); return 1; }
 
     if (g->input->keyPress(Key::Up) || g->input->keyPress(Key::W)) {
@@ -536,9 +545,299 @@ int LuaBridge::luaMenuTick(lua_State* S) {
     return 1;
 }
 
+int LuaBridge::luaHash11(lua_State* S) {
+    unsigned int x = (unsigned int)lua_tonumber(S, 1);
+    x = (unsigned int)(((x >> 13) ^ x) * 0x45d9f3bU);
+    x = (unsigned int)(((x >> 13) ^ x) * 0x45d9f3bU);
+    x = (x >> 13) ^ x;
+    lua_pushnumber(S, (double)(x & 0x7fffffffU) / 2147483647.0);
+    return 1;
+}
+
+int LuaBridge::luaBshl(lua_State* S) {
+    lua_pushinteger(S, (int)lua_tointeger(S, 1) << (int)lua_tointeger(S, 2));
+    return 1;
+}
+int LuaBridge::luaBshr(lua_State* S) {
+    lua_pushinteger(S, (int)lua_tointeger(S, 1) >> (int)lua_tointeger(S, 2));
+    return 1;
+}
+int LuaBridge::luaBnot(lua_State* S) {
+    lua_pushinteger(S, ~(int)lua_tointeger(S, 1));
+    return 1;
+}
+int LuaBridge::luaBand(lua_State* S) {
+    lua_pushinteger(S, (int)lua_tointeger(S, 1) & (int)lua_tointeger(S, 2));
+    return 1;
+}
+int LuaBridge::luaBor(lua_State* S) {
+    lua_pushinteger(S, (int)lua_tointeger(S, 1) | (int)lua_tointeger(S, 2));
+    return 1;
+}
+int LuaBridge::luaBxor(lua_State* S) {
+    lua_pushinteger(S, (int)lua_tointeger(S, 1) ^ (int)lua_tointeger(S, 2));
+    return 1;
+}
+
+int LuaBridge::luaClamp(lua_State* S) {
+    double v = lua_tonumber(S, 1);
+    double lo = lua_tonumber(S, 2);
+    double hi = lua_tonumber(S, 3);
+    lua_pushnumber(S, v < lo ? lo : (v > hi ? hi : v));
+    return 1;
+}
+
+int LuaBridge::luaLerp(lua_State* S) {
+    double a = lua_tonumber(S, 1);
+    double b = lua_tonumber(S, 2);
+    double t = lua_tonumber(S, 3);
+    lua_pushnumber(S, a + (b - a) * t);
+    return 1;
+}
+
+int LuaBridge::luaMap(lua_State* S) {
+    double v = lua_tonumber(S, 1);
+    double i0 = lua_tonumber(S, 2);
+    double i1 = lua_tonumber(S, 3);
+    double o0 = lua_tonumber(S, 4);
+    double o1 = lua_tonumber(S, 5);
+    if (i1 == i0) { lua_pushnumber(S, o0); return 1; }
+    lua_pushnumber(S, o0 + (o1 - o0) * (v - i0) / (i1 - i0));
+    return 1;
+}
+
+int LuaBridge::luaSign(lua_State* S) {
+    double v = lua_tonumber(S, 1);
+    lua_pushinteger(S, v > 0 ? 1 : (v < 0 ? -1 : 0));
+    return 1;
+}
+
+int LuaBridge::luaWrap(lua_State* S) {
+    double v = lua_tonumber(S, 1);
+    double lo = lua_tonumber(S, 2);
+    double hi = lua_tonumber(S, 3);
+    double range = hi - lo;
+    if (range == 0) { lua_pushnumber(S, lo); return 1; }
+    double r = lo + fmod(fmod(v - lo, range) + range, range);
+    lua_pushnumber(S, r);
+    return 1;
+}
+
+int LuaBridge::luaTablePack(lua_State* S) {
+    int n = lua_gettop(S);
+    lua_createtable(S, n, 1);
+    for (int i = 1; i <= n; i++) {
+        lua_pushvalue(S, i);
+        lua_rawseti(S, -2, i);
+    }
+    lua_pushinteger(S, n);
+    lua_setfield(S, -2, "n");
+    return 1;
+}
+
+int LuaBridge::luaTableMerge(lua_State* S) {
+    luaL_checktype(S, 1, LUA_TTABLE);
+    luaL_checktype(S, 2, LUA_TTABLE);
+    lua_settop(S, 2);
+    lua_pushnil(S);
+    while (lua_next(S, 2)) {
+        lua_pushvalue(S, -2);
+        lua_insert(S, -2);
+        lua_settable(S, 1);
+    }
+    lua_pushvalue(S, 1);
+    return 1;
+}
+
+struct RNGState { unsigned int state; };
+
+static RNGState* checkRNG(lua_State* S, int idx) {
+    return (RNGState*)luaL_checkudata(S, idx, "rng");
+}
+
+int LuaBridge::luaRngNew(lua_State* S) {
+    unsigned int seed = (unsigned int)lua_tonumber(S, 1);
+    RNGState* r = (RNGState*)lua_newuserdata(S, sizeof(RNGState));
+    r->state = seed ? seed : 1u;
+    luaL_getmetatable(S, "rng");
+    lua_setmetatable(S, -2);
+    return 1;
+}
+
+int LuaBridge::luaRngInt(lua_State* S) {
+    RNGState* r = checkRNG(S, 1);
+    int lo = luaL_checkinteger(S, 2);
+    int hi = luaL_checkinteger(S, 3);
+    unsigned int x = r->state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    r->state = x;
+    int range = hi - lo + 1;
+    if (range <= 0) range = 1;
+    lua_pushinteger(S, lo + (int)(x % (unsigned int)range));
+    return 1;
+}
+
+int LuaBridge::luaRngFloat(lua_State* S) {
+    RNGState* r = checkRNG(S, 1);
+    unsigned int x = r->state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    r->state = x;
+    lua_pushnumber(S, (double)(x >> 8) / 16777216.0);
+    return 1;
+}
+
+int LuaBridge::luaTimeNow(lua_State* S) {
+    auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    lua_pushnumber(S, (double)ns / 1e9);
+    return 1;
+}
+int LuaBridge::luaTimeMs(lua_State* S) {
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    lua_pushinteger(S, (int)ms);
+    return 1;
+}
+
+int LuaBridge::luaMathClamp(lua_State* S) {
+    double v = lua_tonumber(S, 1);
+    double lo = lua_tonumber(S, 2);
+    double hi = lua_tonumber(S, 3);
+    lua_pushnumber(S, v < lo ? lo : (v > hi ? hi : v));
+    return 1;
+}
+int LuaBridge::luaMathLerp(lua_State* S) {
+    double a = lua_tonumber(S, 1);
+    double b = lua_tonumber(S, 2);
+    double t = lua_tonumber(S, 3);
+    lua_pushnumber(S, a + (b - a) * t);
+    return 1;
+}
+int LuaBridge::luaMathSign(lua_State* S) {
+    double v = lua_tonumber(S, 1);
+    lua_pushinteger(S, v > 0 ? 1 : (v < 0 ? -1 : 0));
+    return 1;
+}
+int LuaBridge::luaMathRound(lua_State* S) {
+    double v = lua_tonumber(S, 1);
+    lua_pushinteger(S, (int)std::floor(v + 0.5));
+    return 1;
+}
+int LuaBridge::luaMathAbsfast(lua_State* S) {
+    double v = lua_tonumber(S, 1);
+    lua_pushnumber(S, v >= 0 ? v : -v);
+    return 1;
+}
+
+int LuaBridge::luaStringSplit(lua_State* S) {
+    const char* str = luaL_checkstring(S, 1);
+    const char* sep = luaL_checkstring(S, 2);
+    lua_newtable(S);
+    if (!sep || sep[0] == '\0') {
+        lua_pushstring(S, str);
+        lua_rawseti(S, -2, 1);
+        return 1;
+    }
+    const char* p = str;
+    int i = 1;
+    while (*p) {
+        const char* found = strstr(p, sep);
+        size_t len = found ? (size_t)(found - p) : strlen(p);
+        if (len > 0 || !found) {
+            lua_pushlstring(S, p, len);
+            lua_rawseti(S, -2, i++);
+        }
+        if (!found) break;
+        p = found + strlen(sep);
+    }
+    return 1;
+}
+
+static void trimCString(const char* s, char* out, size_t outSize) {
+    const char* start = s;
+    while (*start == ' ' || *start == '\t' || *start == '\n' || *start == '\r') start++;
+    const char* end = s + strlen(s) - 1;
+    while (end > start && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')) end--;
+    size_t len = (size_t)(end - start + 1);
+    if (len >= outSize) len = outSize - 1;
+    memcpy(out, start, len);
+    out[len] = '\0';
+}
+
+int LuaBridge::luaStringTrim(lua_State* S) {
+    const char* str = luaL_checkstring(S, 1);
+    char buf[4096];
+    trimCString(str, buf, sizeof(buf));
+    lua_pushstring(S, buf);
+    return 1;
+}
+
+int LuaBridge::luaStringStartswith(lua_State* S) {
+    const char* str = luaL_checkstring(S, 1);
+    const char* prefix = luaL_checkstring(S, 2);
+    int r = (strncmp(str, prefix, strlen(prefix)) == 0) ? 1 : 0;
+    lua_pushboolean(S, r);
+    return 1;
+}
+
+int LuaBridge::luaStringEndswith(lua_State* S) {
+    const char* str = luaL_checkstring(S, 1);
+    const char* suffix = luaL_checkstring(S, 2);
+    size_t slen = strlen(str);
+    size_t suffixlen = strlen(suffix);
+    int r = (slen >= suffixlen && strcmp(str + slen - suffixlen, suffix) == 0) ? 1 : 0;
+    lua_pushboolean(S, r);
+    return 1;
+}
+
+struct ScheduledTask {
+    double triggerTime;
+    int fnRef;
+};
+
+static std::vector<ScheduledTask> gScheduledTasks;
+
+int LuaBridge::luaSchedulerAfter(lua_State* S) {
+    double delay = luaL_checknumber(S, 1);
+    luaL_checktype(S, 2, LUA_TFUNCTION);
+    auto now = std::chrono::duration_cast<std::chrono::duration<double>>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    lua_pushvalue(S, 2);
+    int ref = luaL_ref(S, LUA_REGISTRYINDEX);
+    ScheduledTask task;
+    task.triggerTime = now + delay;
+    task.fnRef = ref;
+    gScheduledTasks.push_back(task);
+    return 1;
+}
+
+static void updateScheduler(lua_State* L, double now) {
+    for (size_t i = 0; i < gScheduledTasks.size(); ) {
+        ScheduledTask& t = gScheduledTasks[i];
+        if (now >= t.triggerTime) {
+            lua_rawgeti(L, LUA_REGISTRYINDEX, t.fnRef);
+            if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+                fprintf(stderr, "scheduler error: %s\n", lua_tostring(L, -1));
+                lua_pop(L, 1);
+            }
+            luaL_unref(L, LUA_REGISTRYINDEX, t.fnRef);
+            gScheduledTasks.erase(gScheduledTasks.begin() + (int)i);
+        } else {
+            i++;
+        }
+    }
+}
+
 bool LuaBridge::callLoop(float dt) {
-    if (!gs->running) return false;
     if (!L) { std::cerr << "callLoop: L is null\n"; return false; }
+
+    auto now = std::chrono::duration_cast<std::chrono::duration<double>>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    updateScheduler(L, now);
 
     if (loopThreadRef == LUA_REFNIL) {
         lua_newthread(L);
@@ -560,7 +859,7 @@ bool LuaBridge::callLoop(float dt) {
             return false;
         }
         lua_pushnumber(thread, dt);
-        int status = lua_resume(thread, L, 1, &nin);
+        int status = lua_resume_loop(thread, L, 1, &nin);
         firstLoop = false;
         if (status == LUA_YIELD) return gs->running;
         if (status != LUA_OK) {
@@ -574,7 +873,7 @@ bool LuaBridge::callLoop(float dt) {
     }
 
     lua_pushnumber(thread, dt);
-    int status = lua_resume(thread, L, 1, &nin);
+    int status = lua_resume_loop(thread, L, 1, &nin);
 
     if (status == LUA_YIELD) return gs->running;
 
@@ -618,8 +917,15 @@ void LuaBridge::registerFuncs(lua_State* S) {
     };
 
     lua_newtable(S);
-    luaL_setfuncs(S, funcs, 0);
+    luaL_setfuncs_loop(S, funcs, 0);
     lua_setglobal(S, "render");
+
+    luaL_newmetatable(S, "rng");
+    lua_pushvalue(S, -1);
+    lua_setfield(S, -2, "__index");
+    lua_pushcfunction(S, luaRngInt); lua_setfield(S, -2, "int");
+    lua_pushcfunction(S, luaRngFloat); lua_setfield(S, -2, "float");
+    lua_pop(S, 1);
 
     lua_newtable(S);
     lua_pushcfunction(S, luaKeyHeld); lua_setfield(S, -2, "keyHeld");
@@ -652,6 +958,42 @@ void LuaBridge::registerFuncs(lua_State* S) {
     lua_pushcfunction(S, luaThemeColor); lua_setfield(S, -2, "get");
     lua_setglobal(S, "theme");
 
+    lua_newtable(S);
+    lua_pushcfunction(S, luaHash11); lua_setfield(S, -2, "hash11");
+    lua_pushcfunction(S, luaBshl); lua_setfield(S, -2, "bshl");
+    lua_pushcfunction(S, luaBshr); lua_setfield(S, -2, "bshr");
+    lua_pushcfunction(S, luaBnot); lua_setfield(S, -2, "bnot");
+    lua_pushcfunction(S, luaBand); lua_setfield(S, -2, "band");
+    lua_pushcfunction(S, luaBor); lua_setfield(S, -2, "bor");
+    lua_pushcfunction(S, luaBxor); lua_setfield(S, -2, "bxor");
+    lua_setglobal(S, "util");
+
+    lua_getglobal(S, "math");
+    if (lua_isnil(S, -1)) { lua_pop(S, 1); lua_newtable(S); }
+    lua_pushcfunction(S, luaMathClamp); lua_setfield(S, -2, "clamp");
+    lua_pushcfunction(S, luaMathLerp); lua_setfield(S, -2, "lerp");
+    lua_pushcfunction(S, luaMathSign); lua_setfield(S, -2, "sign");
+    lua_pushcfunction(S, luaMathRound); lua_setfield(S, -2, "round");
+    lua_pushcfunction(S, luaMathAbsfast); lua_setfield(S, -2, "absfast");
+    lua_setglobal(S, "math");
+
+    lua_getglobal(S, "string");
+    lua_pushcfunction(S, luaStringSplit); lua_setfield(S, -2, "split");
+    lua_pushcfunction(S, luaStringTrim); lua_setfield(S, -2, "trim");
+    lua_pushcfunction(S, luaStringStartswith); lua_setfield(S, -2, "startswith");
+    lua_pushcfunction(S, luaStringEndswith); lua_setfield(S, -2, "endswith");
+    lua_pop(S, 1);
+
+    lua_newtable(S);
+    lua_pushcfunction(S, luaTimeNow); lua_setfield(S, -2, "now");
+    lua_pushcfunction(S, luaTimeMs); lua_setfield(S, -2, "ms");
+    lua_setglobal(S, "time");
+
+    lua_newtable(S);
+    lua_pushcfunction(S, luaRngNew); lua_setfield(S, -2, "new");
+    lua_pushcfunction(S, luaSchedulerAfter); lua_setfield(S, -2, "after");
+    lua_setglobal(S, "scheduler");
+
     lua_pushcfunction(S, luaColor);
     lua_setglobal(S, "Color");
 
@@ -669,7 +1011,6 @@ void LuaBridge::registerFuncs(lua_State* S) {
 bool LuaBridge::load(GameState* state, const std::string& mainScript) {
     gs = state;
     L = luaL_newstate();
-    if (!L) return false;
     luaL_openlibs(L);
 
     lua_pushlightuserdata(L, gs);
@@ -696,8 +1037,16 @@ bool LuaBridge::load(GameState* state, const std::string& mainScript) {
     injectColor("COLOR_TEXT_DIM", Color(136, 136, 136));
     injectColor("COLOR_ACCENT", Color(255, 68, 136));
 
-    if (luaL_dofile(L, mainScript.c_str()) != LUA_OK) {
-        std::cerr << "Lua error: " << lua_tostring(L, -1) << "\n";
+    int load_r = luaL_loadfile(L, mainScript.c_str());
+    if (load_r == LUA_OK) {
+        int pcall_r = lua_pcall(L, 0, LUA_MULTRET, 0);
+        if (pcall_r != LUA_OK) {
+            std::cerr << "Lua error: " << lua_tostring(L, -1) << "\n";
+            lua_pop(L, 1);
+            return false;
+        }
+    } else {
+        std::cerr << "Lua load error: code=" << load_r << " msg=" << lua_tostring(L, -1) << "\n";
         lua_pop(L, 1);
         return false;
     }
@@ -717,6 +1066,7 @@ void LuaBridge::callSetup() {
 }
 
 void LuaBridge::callShutdown() {
+    updateScheduler(L, 0);
     lua_getglobal(L, "shutdown");
     if (lua_isfunction(L, -1)) {
         if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
@@ -730,6 +1080,9 @@ void LuaBridge::callShutdown() {
 
 void LuaBridge::close() {
     if (L) {
+        for (size_t i = 0; i < gScheduledTasks.size(); i++)
+            luaL_unref(L, LUA_REGISTRYINDEX, gScheduledTasks[i].fnRef);
+        gScheduledTasks.clear();
         lua_close(L);
         L = nullptr;
     }

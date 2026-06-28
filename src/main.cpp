@@ -137,6 +137,10 @@ static void runLuaGame(const GameEntry& game, Font& activeFont) {
 
     Properties cfg;
     cfg.load(game.dir + "/config.properties");
+    {
+    std::string gameRuntime = cfg.getString("lua_runtime", "");
+    (void)gameRuntime;
+    }
     gRenderer->setFPS(cfg.getInt("fps", gRenderer->getFPS()));
     std::string gameOrient = cfg.getString("orientation", "");
     if (gameOrient == "v")
