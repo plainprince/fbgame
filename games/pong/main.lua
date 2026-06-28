@@ -546,7 +546,7 @@ local function checkScoring()
   return false
 end
 
-local function onPoint(scoringPaddle)
+function onPoint(scoringPaddle)
   if not rl_net then return end
   if rl_paddle then
     if scoringPaddle == rl_paddle then
