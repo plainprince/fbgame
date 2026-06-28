@@ -304,6 +304,9 @@ local function runGame()
       ship.angle = ship.angle + ROTATION_SPEED * dt
     end
 
+    local TAU = 2 * math.pi
+    ship.angle = ((ship.angle + math.pi) % TAU) - math.pi
+
     local ca = math.cos(ship.angle)
     local sa = math.sin(ship.angle)
     local ax, ay = 0, GRAVITY

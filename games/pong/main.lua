@@ -83,10 +83,11 @@ local function rlAct(paddleId)
   return action
 end
 
-local function rlTrain(paddleId, reward)
+local function rlTrainFrame(paddleId, reward)
   local net = paddleId == 1 and rl_net or rl_net2
   if not net then return end
-  pcall(function() rl.train(net, reward, true) end)
+  local obs = rlObs(paddleId)
+  pcall(function() rl.trainFrame(net, reward, obs) end)
 end
 
 local function rlSave()
@@ -318,7 +319,15 @@ local function handleAI(paddleId, config, dt, enemyPaddleId, enemySpeed)
 
   if config.rl then
     rl_paddle = paddleId
-    local action = rlAct(paddleId)
+    local obs = rlObs(paddleId)
+    local ballCenterY = ballY + BALL_SIZE / 2
+    local myCenter = paddleId == 1 and paddle1Y + PADDLE_H/2 or paddle2Y + PADDLE_H/2
+    local dist = math.abs(ballCenterY - myCenter)
+    local reward = -dist * 0.002
+    if ballVX > 0 and paddleId == 2 then reward = reward + 0.005 end
+    if ballVX < 0 and paddleId == 1 then reward = reward + 0.005 end
+    local ok, action = pcall(function() return rl.trainFrame(net, reward, obs) end)
+    if not ok then action = 1 end
     if action == 0 then
       targetY = paddleY - config.speed * dt
     elseif action == 2 then
@@ -550,19 +559,19 @@ function onPoint(scoringPaddle)
   if not rl_net then return end
   if rl_paddle then
     if scoringPaddle == rl_paddle then
-      rlTrain(rl_paddle, 1)
+      rlTrainFrame(rl_paddle, 1.0)
     elseif scoringPaddle ~= 0 then
       local other = scoringPaddle == 1 and 2 or 1
       if other == rl_paddle then
-        rlTrain(rl_paddle, -1)
+        rlTrainFrame(rl_paddle, -1.0)
       end
     end
   end
   if diff1 == 6 and scoringPaddle ~= 0 then
-    rlTrain(1, scoringPaddle == 1 and 1 or -1)
+    rlTrainFrame(1, scoringPaddle == 1 and 1.0 or -1.0)
   end
   if diff2 == 6 and scoringPaddle ~= 0 then
-    rlTrain(2, scoringPaddle == 2 and 1 or -1)
+    rlTrainFrame(2, scoringPaddle == 2 and 1.0 or -1.0)
   end
   rlSave()
 end

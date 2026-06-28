@@ -842,6 +842,7 @@ struct RLNet {
     float b1[RL_HIDDEN];
     float w2[RL_HIDDEN][RL_OUTPUTS];
     float b2[RL_OUTPUTS];
+    float epsilon;
     float states[RL_BUF][RL_INPUTS];
     int actions[RL_BUF];
     float rewards[RL_BUF];
@@ -888,6 +889,7 @@ static RLNet* checkRL(lua_State* S, int idx) {
 int LuaBridge::luaRlNew(lua_State* S) {
     RLNet* net = (RLNet*)lua_newuserdata(S, sizeof(RLNet));
     net->bufLen = 0;
+    net->epsilon = 0.4f;
     float scale1 = (float)std::sqrt(6.0 / (RL_INPUTS + RL_HIDDEN));
     float scale2 = (float)std::sqrt(6.0 / (RL_HIDDEN + RL_OUTPUTS));
     for (int i = 0; i < RL_INPUTS; i++)
@@ -897,7 +899,7 @@ int LuaBridge::luaRlNew(lua_State* S) {
     for (int h = 0; h < RL_HIDDEN; h++)
         for (int o = 0; o < RL_OUTPUTS; o++)
             net->w2[h][o] = ((float)rand() / RAND_MAX * 2 - 1) * scale2;
-    for (int o = 0; o < RL_OUTPUTS; o++) net->b2[o] = 0;
+    for (int o = 0; o < RL_OUTPUTS; o++) net->b2[o] = (o == 1) ? 0.5f : 0.0f;
     luaL_getmetatable(S, "rl_net");
     lua_setmetatable(S, -2);
     return 1;
@@ -914,15 +916,9 @@ int LuaBridge::luaRlAct(lua_State* S) {
     }
     int action = 0;
     rl_forward(net, in, &action);
-    static float epsilon = 0.3f;
-    if ((float)rand() / RAND_MAX < epsilon) {
+    if ((float)rand() / RAND_MAX < net->epsilon) {
         action = rand() % RL_OUTPUTS;
-        if (epsilon > 0.05f) epsilon -= 0.001f;
-    }
-    if (net->bufLen < RL_BUF) {
-        for (int i = 0; i < RL_INPUTS; i++) net->states[net->bufLen][i] = in[i];
-        net->actions[net->bufLen] = action;
-        net->bufLen++;
+        if (net->epsilon > 0.05f) net->epsilon -= 0.0005f;
     }
     lua_pushinteger(S, action);
     return 1;
@@ -931,16 +927,32 @@ int LuaBridge::luaRlAct(lua_State* S) {
 int LuaBridge::luaRlTrain(lua_State* S) {
     RLNet* net = checkRL(S, 1);
     float reward = (float)luaL_optnumber(S, 2, 0);
-    int actionable = lua_toboolean(S, 3);
-    if (net->bufLen > 0 && actionable) {
-        net->rewards[net->bufLen - 1] = reward;
+    luaL_checktype(S, 3, LUA_TTABLE);
+    float in[RL_INPUTS];
+    for (int i = 0; i < RL_INPUTS; i++) {
+        lua_rawgeti(S, 3, i + 1);
+        in[i] = (float)luaL_optnumber(S, -1, 0);
+        lua_pop(S, 1);
     }
-    float lr = 0.02f;
-    for (int i = 0; i < net->bufLen; i++) {
-        float r = net->rewards[i];
-        if (r != 0) rl_train_step(net, lr * r);
+    int action = 0;
+    rl_forward(net, in, &action);
+    if (net->bufLen < RL_BUF) {
+        for (int i = 0; i < RL_INPUTS; i++) net->states[net->bufLen][i] = in[i];
+        net->actions[net->bufLen] = action;
+        net->rewards[net->bufLen] = reward;
+        net->bufLen++;
     }
-    net->bufLen = 0;
+    if ((float)rand() / RAND_MAX < net->epsilon) {
+        if (net->epsilon > 0.05f) net->epsilon -= 0.0005f;
+    }
+    if (net->bufLen >= RL_BUF) {
+        float lr = 0.05f;
+        for (int i = 0; i < net->bufLen; i++) {
+            float r = net->rewards[i];
+            if (r != 0) rl_train_step(net, lr * r);
+        }
+        net->bufLen = 0;
+    }
     lua_pushboolean(S, 1);
     return 1;
 }
@@ -964,6 +976,41 @@ int LuaBridge::luaRlLoad(lua_State* S) {
     fread(net, sizeof(RLNet), 1, f);
     fclose(f);
     lua_pushboolean(S, 1);
+    return 1;
+}
+
+int LuaBridge::luaRlTrainFrame(lua_State* S) {
+    RLNet* net = checkRL(S, 1);
+    float reward = (float)luaL_optnumber(S, 2, 0);
+    luaL_checktype(S, 3, LUA_TTABLE);
+    float in[RL_INPUTS];
+    for (int i = 0; i < RL_INPUTS; i++) {
+        lua_rawgeti(S, 3, i + 1);
+        in[i] = (float)luaL_optnumber(S, -1, 0);
+        lua_pop(S, 1);
+    }
+    int action = 0;
+    rl_forward(net, in, &action);
+    if (net->bufLen < RL_BUF) {
+        for (int i = 0; i < RL_INPUTS; i++) net->states[net->bufLen][i] = in[i];
+        net->actions[net->bufLen] = action;
+        net->rewards[net->bufLen] = reward;
+        net->bufLen++;
+    }
+    // epsilon-greedy
+    if ((float)rand() / RAND_MAX < net->epsilon) {
+        action = rand() % RL_OUTPUTS;
+        if (net->epsilon > 0.05f) net->epsilon -= 0.0005f;
+    }
+    if (net->bufLen >= RL_BUF) {
+        float lr = 0.05f;
+        for (int i = 0; i < net->bufLen; i++) {
+            float r = net->rewards[i];
+            if (r != 0) rl_train_step(net, lr * r);
+        }
+        net->bufLen = 0;
+    }
+    lua_pushinteger(S, action);
     return 1;
 }
 
@@ -1067,6 +1114,7 @@ void LuaBridge::registerFuncs(lua_State* S) {
     lua_setfield(S, -2, "__index");
     lua_pushcfunction(S, luaRlAct); lua_setfield(S, -2, "act");
     lua_pushcfunction(S, luaRlTrain); lua_setfield(S, -2, "train");
+    lua_pushcfunction(S, luaRlTrainFrame); lua_setfield(S, -2, "trainFrame");
     lua_pushcfunction(S, luaRlSave); lua_setfield(S, -2, "save");
     lua_pushcfunction(S, luaRlLoad); lua_setfield(S, -2, "load");
     lua_pop(S, 1);

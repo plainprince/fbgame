@@ -104,6 +104,7 @@ private:
     static int luaRlNew(lua_State* L);
     static int luaRlAct(lua_State* L);
     static int luaRlTrain(lua_State* L);
+    static int luaRlTrainFrame(lua_State* L);
     static int luaRlSave(lua_State* L);
     static int luaRlLoad(lua_State* L);
 
