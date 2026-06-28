@@ -26,14 +26,13 @@ local gameOver, gameWinner
 local aiTimer
 local blinkTimer, dismissTimer
 local speedMult, rallyCount
+local launchTimer
 local aiConfig
 local diff1, diff2
 
 local rl_net
-local rl_net2
 local rl_paddle
-local rl_path = "games/pong/rl_weights.dat"
-local rl_path2 = "games/pong/rl_weights2.dat"
+local rl_path = "saves/pong/rl_weights.dat"
 
 local scoringMode = SCORING_FIRST
 local winScore = 5
@@ -60,9 +59,13 @@ function setup()
 
   if type(rl) == "table" and rl.new then
     rl_net = rl.new()
-    rl_net2 = rl.new()
     if rl_net then rl_net:load(rl_path) end
-    if rl_net2 then rl_net2:load(rl_path2) end
+  end
+  local sm = save.read("scoring_mode")
+  if sm and sm ~= "" then
+    scoringMode = tonumber(sm) or SCORING_FIRST
+    winScore = tonumber(save.read("win_score")) or 5
+    countdownDuration = tonumber(save.read("countdown_duration")) or 180
   end
 end
 
@@ -74,26 +77,23 @@ local function rlObs(paddleId)
   }
 end
 
-local function rlAct(paddleId)
-  local net = paddleId == 1 and rl_net or rl_net2
-  if not net then return 1 end
-  local obs = rlObs(paddleId)
-  local ok, action = pcall(function() return rl.act(net, obs) end)
+local function rlAct()
+  if not rl_net then return 1 end
+  local obs = rlObs(rl_paddle or 2)
+  local ok, action = pcall(function() return rl_net:act(obs) end)
   if not ok then return 1 end
   return action
 end
 
-local function rlTrainFrame(paddleId, reward)
-  local net = paddleId == 1 and rl_net or rl_net2
-  if not net then return end
-  local obs = rlObs(paddleId)
-  pcall(function() rl.trainFrame(net, reward, obs) end)
+local function rlTrainFrame(reward)
+  if not rl_net then return end
+  local obs = rlObs(rl_paddle or 2)
+  pcall(function() rl_net:trainFrame(reward, obs) end)
 end
 
 local function rlSave()
   if not rl_net then return end
-  pcall(function() rl.save(rl_net, rl_path) end)
-  pcall(function() rl.save(rl_net2, rl_path2) end)
+  pcall(function() rl_net:save(rl_path) end)
 end
 
 local function formatTime(seconds)
@@ -130,6 +130,19 @@ local function resetBall(dir)
   local spd = BALL_SPEEDS[diff] * speedMult
   ballVX = dir * spd * math.cos(angleRad)
   ballVY = spd * math.sin(angleRad)
+  launchTimer = 1.0
+
+  trailStore = {}
+  local cx, cy = ballX + BALL_SIZE / 2, ballY + BALL_SIZE / 2
+  local half = BALL_SIZE / 2
+  for i = 1, 40 do
+    cx = cx - ballVX * (2 / 30)
+    cy = cy - ballVY * (2 / 30)
+    if cy - half < 0 then cy = -cy + half end
+    if cy + half > 64 then cy = 64 - half - (cy + half - 64) end
+    if cx + half < 0 or cx - half > 128 then break end
+    table.insert(trailStore, { x = cx - half, y = cy - half })
+  end
 end
 
 local function resetGame()
@@ -146,6 +159,7 @@ local function resetGame()
   trailDrawPositions = {}
   ballHitCount = 0
   rl_paddle = nil
+  launchTimer = 0
   if scoringMode == SCORING_COUNTDOWN then
     countdownRemaining = countdownDuration
   end
@@ -191,6 +205,27 @@ local function drawGame()
   drawBallFn()
   drawScores()
   drawHUD()
+end
+
+local function drawPreview()
+  trailDrawPositions = {}
+  local si, fromX, fromY = 2, ballX, ballY
+  while #trailDrawPositions < 6 and si <= #trailStore do
+    local toX, toY = trailStore[si].x, trailStore[si].y
+    local dx, dy = toX - fromX, toY - fromY
+    local seg = math.sqrt(dx * dx + dy * dy)
+    if seg > 0 then
+      local nx, ny = dx / seg, dy / seg
+      local step = 1
+      while step <= seg and #trailDrawPositions < 6 do
+        table.insert(trailDrawPositions, { x = fromX + nx * step, y = fromY + ny * step })
+        step = step + 1
+      end
+    end
+    fromX, fromY = toX, toY
+    si = si + 1
+  end
+  drawGame()
 end
 
 local function drawGameOverScreen()
@@ -310,10 +345,37 @@ local function simulateBounce(ballCX, ballCY, ballVX, ballVY, hitterId, receiver
   return scoreSum / totalCount
 end
 
-local function handleAI(paddleId, config, dt, enemyPaddleId, enemySpeed)
+local function handleAI(paddleId, config, dt, enemyPaddleId, enemySpeed, preview)
   local ballCenterY = ballY + BALL_SIZE / 2
   local paddleY = paddleId == 1 and paddle1Y or paddle2Y
   local paddleCenter = paddleY + PADDLE_H / 2
+
+  if preview then
+    local targetY = paddleCenter
+    local ballMovingToward = (paddleId == 1 and ballVX < 0) or (paddleId == 2 and ballVX > 0)
+    if ballMovingToward then
+      local paddleEdge = paddleId == 1 and (PADDLE_MARGIN + PADDLE_W) or (128 - PADDLE_MARGIN - PADDLE_W)
+      local dx = math.abs(paddleEdge - ballX)
+      if dx > 0 and math.abs(ballVX) > 1 then
+        local t = dx / math.abs(ballVX)
+        local half = BALL_SIZE / 2
+        targetY = reflect(ballCenterY + ballVY * t, half, 64 - half)
+      else
+        targetY = ballCenterY
+      end
+    end
+    local diffY = targetY - paddleCenter
+    if math.abs(diffY) > 1 then
+      local step = config.speed * dt
+      if diffY > 0 then
+        if paddleId == 1 then paddle1Y = paddle1Y + step else paddle2Y = paddle2Y + step end
+      else
+        if paddleId == 1 then paddle1Y = paddle1Y - step else paddle2Y = paddle2Y - step end
+      end
+      clampPaddle(paddleId)
+    end
+    return
+  end
 
   local targetY = ballCenterY
 
@@ -322,18 +384,25 @@ local function handleAI(paddleId, config, dt, enemyPaddleId, enemySpeed)
     local obs = rlObs(paddleId)
     local ballCenterY = ballY + BALL_SIZE / 2
     local myCenter = paddleId == 1 and paddle1Y + PADDLE_H/2 or paddle2Y + PADDLE_H/2
-    local dist = math.abs(ballCenterY - myCenter)
-    local reward = -dist * 0.002
-    if ballVX > 0 and paddleId == 2 then reward = reward + 0.005 end
-    if ballVX < 0 and paddleId == 1 then reward = reward + 0.005 end
-    local ok, action = pcall(function() return rl.trainFrame(net, reward, obs) end)
+    local predictedY = ballCenterY
+    local paddleEdge = paddleId == 1 and (PADDLE_MARGIN + PADDLE_W) or (128 - PADDLE_MARGIN - PADDLE_W)
+    local dx = math.abs(paddleEdge - ballX)
+    if dx > 0 and math.abs(ballVX) > 1 then
+      local t = dx / math.abs(ballVX)
+      predictedY = reflect(ballCenterY + ballVY * t, BALL_SIZE / 2, 64 - BALL_SIZE / 2)
+    end
+    local dist = math.abs(predictedY - myCenter)
+    local reward = -dist * 0.02
+    if ballVX > 0 and paddleId == 2 then reward = reward + 0.05 end
+    if ballVX < 0 and paddleId == 1 then reward = reward + 0.05 end
+    local ok, action = pcall(function() return rl_net:trainFrame(reward, obs) end)
     if not ok then action = 1 end
     if action == 0 then
-      targetY = paddleY - config.speed * dt
+      targetY = paddleCenter - config.speed * dt
     elseif action == 2 then
-      targetY = paddleY + config.speed * dt
+      targetY = paddleCenter + config.speed * dt
     else
-      targetY = paddleY
+      targetY = paddleCenter
     end
     local diffY = targetY - paddleCenter
     if math.abs(diffY) > 1 then
@@ -559,19 +628,13 @@ function onPoint(scoringPaddle)
   if not rl_net then return end
   if rl_paddle then
     if scoringPaddle == rl_paddle then
-      rlTrainFrame(rl_paddle, 1.0)
+      rlTrainFrame(1.0)
     elseif scoringPaddle ~= 0 then
       local other = scoringPaddle == 1 and 2 or 1
       if other == rl_paddle then
-        rlTrainFrame(rl_paddle, -1.0)
+        rlTrainFrame(-1.0)
       end
     end
-  end
-  if diff1 == 6 and scoringPaddle ~= 0 then
-    rlTrainFrame(1, scoringPaddle == 1 and 1.0 or -1.0)
-  end
-  if diff2 == 6 and scoringPaddle ~= 0 then
-    rlTrainFrame(2, scoringPaddle == 2 and 1.0 or -1.0)
   end
   rlSave()
 end
@@ -615,13 +678,13 @@ local function chooseSettings()
   if c < 0 or c == 4 then return end
   if c == 1 then
     local n = showMenu("FIRST TO", { "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "Cancel" })
-    if n >= 1 and n <= 10 then winScore = n; scoringMode = SCORING_FIRST end
+    if n >= 1 and n <= 10 then winScore = n; scoringMode = SCORING_FIRST; save.write("scoring_mode", tostring(scoringMode)); save.write("win_score", tostring(winScore)) end
   elseif c == 2 then
     local n = showMenu("COUNTDOWN", { "1:00", "3:00", "5:00", "10:00", "Cancel" })
     local durations = { [1] = 60, [2] = 180, [3] = 300, [4] = 600 }
-    if n >= 1 and n <= 4 then countdownDuration = durations[n]; scoringMode = SCORING_COUNTDOWN end
+    if n >= 1 and n <= 4 then countdownDuration = durations[n]; scoringMode = SCORING_COUNTDOWN; save.write("scoring_mode", tostring(scoringMode)); save.write("countdown_duration", tostring(countdownDuration)) end
   elseif c == 3 then
-    scoringMode = SCORING_FOREVER
+    scoringMode = SCORING_FOREVER; save.write("scoring_mode", tostring(scoringMode))
   end
 end
 
@@ -642,19 +705,25 @@ local function runSingleplayer()
       end
     end
     handleP1Input(dt)
-    handleAI(2, aiConfig, dt, 1, PADDLE_SPEED)
-    updateBall(dt)
-    if scoringMode == SCORING_COUNTDOWN then
-      countdownRemaining = countdownRemaining - dt
-      if countdownRemaining <= 0 then
-        gameOver = true
-        if score1 > score2 then gameWinner = "YOU WIN!"
-        elseif score2 > score1 then gameWinner = "YOU LOSE!"
-        else gameWinner = "DRAW!" end
-        audio.playSfx("gameover.wav")
+    if launchTimer > 0 then
+      handleAI(2, aiConfig, dt, 1, PADDLE_SPEED, true)
+      launchTimer = launchTimer - dt
+      drawPreview()
+    else
+      handleAI(2, aiConfig, dt, 1, PADDLE_SPEED)
+      updateBall(dt)
+      if scoringMode == SCORING_COUNTDOWN then
+        countdownRemaining = countdownRemaining - dt
+        if countdownRemaining <= 0 then
+          gameOver = true
+          if score1 > score2 then gameWinner = "YOU WIN!"
+          elseif score2 > score1 then gameWinner = "YOU LOSE!"
+          else gameWinner = "DRAW!" end
+          audio.playSfx("gameover.wav")
+        end
       end
+      drawGame()
     end
-    drawGame()
     dt = yield()
   end
   blinkTimer = 0
@@ -689,18 +758,23 @@ local function runMultiplayer()
     end
     handleP1Input(dt)
     handleP2Input(dt)
-    updateBall(dt)
-    if scoringMode == SCORING_COUNTDOWN then
-      countdownRemaining = countdownRemaining - dt
-      if countdownRemaining <= 0 then
-        gameOver = true
-        if score1 > score2 then gameWinner = "PLAYER 1 WINS!"
-        elseif score2 > score1 then gameWinner = "PLAYER 2 WINS!"
-        else gameWinner = "DRAW!" end
-        audio.playSfx("gameover.wav")
+    if launchTimer > 0 then
+      launchTimer = launchTimer - dt
+      drawPreview()
+    else
+      updateBall(dt)
+      if scoringMode == SCORING_COUNTDOWN then
+        countdownRemaining = countdownRemaining - dt
+        if countdownRemaining <= 0 then
+          gameOver = true
+          if score1 > score2 then gameWinner = "PLAYER 1 WINS!"
+          elseif score2 > score1 then gameWinner = "PLAYER 2 WINS!"
+          else gameWinner = "DRAW!" end
+          audio.playSfx("gameover.wav")
+        end
       end
+      drawGame()
     end
-    drawGame()
     dt = yield()
   end
   blinkTimer = 0
@@ -723,6 +797,8 @@ local function runAivsAI()
   diff = math.max(diff1, diff2)
   local aiConfig1 = AI_CONFIGS[diff1]
   local aiConfig2 = AI_CONFIGS[diff2]
+  local fastMult = 0
+  local fastSpeeds = { 2, 5, 10, 50, 100 }
   resetGame()
   local dt = 0
   while not gameOver do
@@ -736,20 +812,41 @@ local function runAivsAI()
         dt = yield()
       end
     end
-    handleAI(1, aiConfig1, dt, 2, AI_CONFIGS[diff2].speed)
-    handleAI(2, aiConfig2, dt, 1, AI_CONFIGS[diff1].speed)
-    updateBall(dt)
-    if scoringMode == SCORING_COUNTDOWN then
-      countdownRemaining = countdownRemaining - dt
-      if countdownRemaining <= 0 then
-        gameOver = true
-        if score1 > score2 then gameWinner = "AI 1 WINS!"
-        elseif score2 > score1 then gameWinner = "AI 2 WINS!"
-        else gameWinner = "DRAW!" end
-        audio.playSfx("gameover.wav")
-      end
+    if input.keyPress("KEY_F") then
+      fastMult = fastMult + 1
+      if fastMult > #fastSpeeds then fastMult = 0 end
     end
-    drawGame()
+    local steps = fastMult > 0 and fastSpeeds[fastMult] or 1
+    if launchTimer > 0 then
+      for _ = 1, steps do
+        handleAI(1, aiConfig1, dt, 2, AI_CONFIGS[diff2].speed, true)
+        handleAI(2, aiConfig2, dt, 1, AI_CONFIGS[diff1].speed, true)
+        launchTimer = launchTimer - dt
+        if launchTimer <= 0 then break end
+      end
+      drawPreview()
+    else
+      for _ = 1, steps do
+        handleAI(1, aiConfig1, dt, 2, AI_CONFIGS[diff2].speed)
+        handleAI(2, aiConfig2, dt, 1, AI_CONFIGS[diff1].speed)
+        updateBall(dt)
+        if gameOver then break end
+        if scoringMode == SCORING_COUNTDOWN then
+          countdownRemaining = countdownRemaining - dt
+          if countdownRemaining <= 0 then
+            gameOver = true
+            if score1 > score2 then gameWinner = "AI 1 WINS!"
+            elseif score2 > score1 then gameWinner = "AI 2 WINS!"
+            else gameWinner = "DRAW!" end
+            audio.playSfx("gameover.wav")
+          end
+        end
+      end
+      drawGame()
+    end
+    if fastMult > 0 then
+      render.text(0, 56, "FAST " .. fastSpeeds[fastMult] .. "x (F)", COLOR_ACCENT, 128, 1, true)
+    end
     dt = yield()
   end
   blinkTimer = 0
@@ -792,6 +889,6 @@ function loop(dt)
 end
 
 function shutdown()
-  rlSave()
+  if rl_net then pcall(function() rl_net:save(rl_path, true) end) end
   render.clear(Color(10, 10, 10))
 end

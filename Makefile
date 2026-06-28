@@ -1,14 +1,18 @@
 CXX=ccache g++
 CXXFLAGS=-std=c++17 -O3 -mcpu=native -pipe -Wall -Wextra -Iinclude
 LDLIBS=$(shell pkg-config --libs alsa 2>/dev/null || echo "-lasound") \
-       -lpthread -flto -s
+       -lpthread -flto
 
 SRC=$(wildcard src/*pp)
 OBJ=$(SRC:.cpp=.o)
 
-.PHONY: all clean luajit lua5.4
+.PHONY: all clean luajit lua5.4 pongtrain
 
 all: lua5.4
+
+pongtrain: tools/pongtrain.cpp
+	$(CXX) -std=c++17 -O3 -pipe -Wall -Wextra $< -o $@ -lpthread -flto
+	@echo "  pongtrain built: ./pongtrain [episodes_per_thread] [threads]"
 
 luajit: CXXFLAGS += -I/usr/include/luajit-2.1
 luajit: LDLIBS += -lluajit-5.1

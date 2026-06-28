@@ -1,7 +1,9 @@
 #include <lua_bridge.hpp>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -833,53 +835,36 @@ static void updateScheduler(lua_State* L, double now) {
 }
 
 #define RL_INPUTS 6
-#define RL_HIDDEN 8
-#define RL_OUTPUTS 3
-#define RL_BUF 64
+#define RL_ACTIONS 3
+#define RL_BINS_X 8
+#define RL_BINS_Y 4
+#define RL_BINS_V 3
+#define RL_BINS_P 4
+#define RL_STATES (RL_BINS_X * RL_BINS_Y * RL_BINS_V * RL_BINS_V * RL_BINS_P)
+#define RL_ALPHA 0.2f
+#define RL_GAMMA 0.9f
 
 struct RLNet {
-    float w1[RL_INPUTS][RL_HIDDEN];
-    float b1[RL_HIDDEN];
-    float w2[RL_HIDDEN][RL_OUTPUTS];
-    float b2[RL_OUTPUTS];
+    float q[RL_STATES][RL_ACTIONS];
     float epsilon;
-    float states[RL_BUF][RL_INPUTS];
-    int actions[RL_BUF];
-    float rewards[RL_BUF];
-    int bufLen;
+    int lastState;
+    int lastAction;
 };
 
-static float rl_tanh(float x) { return (float)std::tanh(x); }
-
-static void rl_forward(const RLNet* net, const float* in, int* action) {
-    float hidden[RL_HIDDEN];
-    float out[RL_OUTPUTS];
-    for (int h = 0; h < RL_HIDDEN; h++) {
-        float s = net->b1[h];
-        for (int i = 0; i < RL_INPUTS; i++) s += in[i] * net->w1[i][h];
-        hidden[h] = rl_tanh(s);
-    }
-    for (int o = 0; o < RL_OUTPUTS; o++) {
-        float s = net->b2[o];
-        for (int h = 0; h < RL_HIDDEN; h++) s += hidden[h] * net->w2[h][o];
-        out[o] = s;
-    }
-    int best = 0;
-    for (int i = 1; i < RL_OUTPUTS; i++) if (out[i] > out[best]) best = i;
-    if (action) *action = best;
-}
-
-static void rl_train_step(RLNet* net, float lr) {
-    for (int i = 0; i < RL_INPUTS; i++)
-        for (int h = 0; h < RL_HIDDEN; h++)
-            net->w1[i][h] += ((float)rand() / RAND_MAX - 0.5f) * lr;
-    for (int h = 0; h < RL_HIDDEN; h++)
-        net->b1[h] += ((float)rand() / RAND_MAX - 0.5f) * lr;
-    for (int h = 0; h < RL_HIDDEN; h++)
-        for (int o = 0; o < RL_OUTPUTS; o++)
-            net->w2[h][o] += ((float)rand() / RAND_MAX - 0.5f) * lr;
-    for (int o = 0; o < RL_OUTPUTS; o++)
-        net->b2[o] += ((float)rand() / RAND_MAX - 0.5f) * lr;
+static int rl_encodeState(const float* in) {
+    int bx = (int)std::floor(in[0] * (RL_BINS_X - 1));
+    if (bx < 0) bx = 0;
+    if (bx >= RL_BINS_X) bx = RL_BINS_X - 1;
+    int by = (int)std::floor(in[1] * (RL_BINS_Y - 1));
+    if (by < 0) by = 0;
+    if (by >= RL_BINS_Y) by = RL_BINS_Y - 1;
+    int vx = in[2] > 0.5f ? 2 : (in[2] < -0.5f ? 0 : 1);
+    int vy = in[3] > 0.5f ? 2 : (in[3] < -0.5f ? 0 : 1);
+    int py = (int)std::floor(in[4] * (RL_BINS_P - 1));
+    if (py < 0) py = 0;
+    if (py >= RL_BINS_P) py = RL_BINS_P - 1;
+    int v = (bx * RL_BINS_Y + by) * RL_BINS_V + vx;
+    return v * RL_BINS_V * RL_BINS_P + vy * RL_BINS_P + py;
 }
 
 static RLNet* checkRL(lua_State* S, int idx) {
@@ -888,18 +873,12 @@ static RLNet* checkRL(lua_State* S, int idx) {
 
 int LuaBridge::luaRlNew(lua_State* S) {
     RLNet* net = (RLNet*)lua_newuserdata(S, sizeof(RLNet));
-    net->bufLen = 0;
-    net->epsilon = 0.4f;
-    float scale1 = (float)std::sqrt(6.0 / (RL_INPUTS + RL_HIDDEN));
-    float scale2 = (float)std::sqrt(6.0 / (RL_HIDDEN + RL_OUTPUTS));
-    for (int i = 0; i < RL_INPUTS; i++)
-        for (int h = 0; h < RL_HIDDEN; h++)
-            net->w1[i][h] = ((float)rand() / RAND_MAX * 2 - 1) * scale1;
-    for (int h = 0; h < RL_HIDDEN; h++) net->b1[h] = 0;
-    for (int h = 0; h < RL_HIDDEN; h++)
-        for (int o = 0; o < RL_OUTPUTS; o++)
-            net->w2[h][o] = ((float)rand() / RAND_MAX * 2 - 1) * scale2;
-    for (int o = 0; o < RL_OUTPUTS; o++) net->b2[o] = (o == 1) ? 0.5f : 0.0f;
+    net->epsilon = 0.5f;
+    net->lastState = -1;
+    net->lastAction = 1;
+    for (int s = 0; s < RL_STATES; s++)
+        for (int a = 0; a < RL_ACTIONS; a++)
+            net->q[s][a] = 1.0f;
     luaL_getmetatable(S, "rl_net");
     lua_setmetatable(S, -2);
     return 1;
@@ -914,12 +893,28 @@ int LuaBridge::luaRlAct(lua_State* S) {
         in[i] = (float)luaL_optnumber(S, -1, 0);
         lua_pop(S, 1);
     }
-    int action = 0;
-    rl_forward(net, in, &action);
+    int state = rl_encodeState(in);
+    int action;
     if ((float)rand() / RAND_MAX < net->epsilon) {
-        action = rand() % RL_OUTPUTS;
-        if (net->epsilon > 0.05f) net->epsilon -= 0.0005f;
+        action = rand() % RL_ACTIONS;
+    } else {
+        float bestQ = net->q[state][0];
+        int bestCount = 1;
+        int bestActions[RL_ACTIONS] = {0};
+        for (int a = 1; a < RL_ACTIONS; a++) {
+            if (net->q[state][a] > bestQ) {
+                bestQ = net->q[state][a];
+                bestCount = 1;
+                bestActions[0] = a;
+            } else if (net->q[state][a] == bestQ) {
+                bestActions[bestCount++] = a;
+            }
+        }
+        action = bestActions[rand() % bestCount];
     }
+    if (net->epsilon > 0.05f) net->epsilon -= 0.0005f;
+    net->lastState = state;
+    net->lastAction = action;
     lua_pushinteger(S, action);
     return 1;
 }
@@ -934,32 +929,33 @@ int LuaBridge::luaRlTrain(lua_State* S) {
         in[i] = (float)luaL_optnumber(S, -1, 0);
         lua_pop(S, 1);
     }
-    int action = 0;
-    rl_forward(net, in, &action);
-    if (net->bufLen < RL_BUF) {
-        for (int i = 0; i < RL_INPUTS; i++) net->states[net->bufLen][i] = in[i];
-        net->actions[net->bufLen] = action;
-        net->rewards[net->bufLen] = reward;
-        net->bufLen++;
+    int newState = rl_encodeState(in);
+    int lastState = net->lastState;
+    int lastAction = net->lastAction;
+    if (lastState >= 0) {
+        float maxNextQ = net->q[newState][0];
+        for (int a = 1; a < RL_ACTIONS; a++)
+            if (net->q[newState][a] > maxNextQ) maxNextQ = net->q[newState][a];
+        float oldQ = net->q[lastState][lastAction];
+        net->q[lastState][lastAction] = oldQ + RL_ALPHA * (reward + RL_GAMMA * maxNextQ - oldQ);
     }
-    if ((float)rand() / RAND_MAX < net->epsilon) {
-        if (net->epsilon > 0.05f) net->epsilon -= 0.0005f;
-    }
-    if (net->bufLen >= RL_BUF) {
-        float lr = 0.05f;
-        for (int i = 0; i < net->bufLen; i++) {
-            float r = net->rewards[i];
-            if (r != 0) rl_train_step(net, lr * r);
-        }
-        net->bufLen = 0;
-    }
+    net->lastState = newState;
+    net->lastAction = 0;
     lua_pushboolean(S, 1);
     return 1;
 }
 
+static time_t g_rlLastSave = 0;
+
 int LuaBridge::luaRlSave(lua_State* S) {
     RLNet* net = checkRL(S, 1);
     const char* path = luaL_checkstring(S, 2);
+    bool force = lua_toboolean(S, 3);
+    if (!force) {
+        time_t now = time(nullptr);
+        if (now - g_rlLastSave < 120) { lua_pushboolean(S, 1); return 1; }
+        g_rlLastSave = now;
+    }
     FILE* f = fopen(path, "wb");
     if (!f) { lua_pushboolean(S, 0); return 1; }
     fwrite(net, sizeof(RLNet), 1, f);
@@ -989,27 +985,37 @@ int LuaBridge::luaRlTrainFrame(lua_State* S) {
         in[i] = (float)luaL_optnumber(S, -1, 0);
         lua_pop(S, 1);
     }
-    int action = 0;
-    rl_forward(net, in, &action);
-    if (net->bufLen < RL_BUF) {
-        for (int i = 0; i < RL_INPUTS; i++) net->states[net->bufLen][i] = in[i];
-        net->actions[net->bufLen] = action;
-        net->rewards[net->bufLen] = reward;
-        net->bufLen++;
+    int newState = rl_encodeState(in);
+    int lastState = net->lastState;
+    int lastAction = net->lastAction;
+    if (lastState >= 0) {
+        float maxNextQ = net->q[newState][0];
+        for (int a = 1; a < RL_ACTIONS; a++)
+            if (net->q[newState][a] > maxNextQ) maxNextQ = net->q[newState][a];
+        float oldQ = net->q[lastState][lastAction];
+        net->q[lastState][lastAction] = oldQ + RL_ALPHA * (reward + RL_GAMMA * maxNextQ - oldQ);
     }
-    // epsilon-greedy
+    int action;
     if ((float)rand() / RAND_MAX < net->epsilon) {
-        action = rand() % RL_OUTPUTS;
-        if (net->epsilon > 0.05f) net->epsilon -= 0.0005f;
-    }
-    if (net->bufLen >= RL_BUF) {
-        float lr = 0.05f;
-        for (int i = 0; i < net->bufLen; i++) {
-            float r = net->rewards[i];
-            if (r != 0) rl_train_step(net, lr * r);
+        action = rand() % RL_ACTIONS;
+    } else {
+        float bestQ = net->q[newState][0];
+        int bestCount = 1;
+        int bestActions[RL_ACTIONS] = {0};
+        for (int a = 1; a < RL_ACTIONS; a++) {
+            if (net->q[newState][a] > bestQ) {
+                bestQ = net->q[newState][a];
+                bestCount = 1;
+                bestActions[0] = a;
+            } else if (net->q[newState][a] == bestQ) {
+                bestActions[bestCount++] = a;
+            }
         }
-        net->bufLen = 0;
+        action = bestActions[rand() % bestCount];
     }
+    if (net->epsilon > 0.05f) net->epsilon -= 0.0005f;
+    net->lastState = newState;
+    net->lastAction = action;
     lua_pushinteger(S, action);
     return 1;
 }
@@ -1208,6 +1214,7 @@ bool LuaBridge::load(GameState* state, const std::string& mainScript) {
     gs = state;
     L = luaL_newstate();
     luaL_openlibs(L);
+    srand((unsigned int)time(nullptr));
 
     lua_pushlightuserdata(L, gs);
     lua_setglobal(L, "__gs");
